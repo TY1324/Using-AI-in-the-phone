@@ -67,7 +67,7 @@ public class ImageVideoGenerator {
         c.disconnect();
 
         JSONObject j = new JSONObject(sb.toString());
-        JSONArray data = j.getJSONArray("data");
+        JSONArray data = j.JSONArray("data");
         if (data.length() == 0) throw new Exception("无图片返回");
         JSONObject item = data.getJSONObject(0);
         if (item.has("b64_json")) return item.getString("b64_json");
@@ -125,7 +125,7 @@ public class ImageVideoGenerator {
 
         JSONObject j = new JSONObject(sb.toString());
         if (j.has("data")) {
-            JSONArray data = j.getJSONArray("data");
+            JSONArray data = j.JSONArray("data");
             if (data.length() > 0) {
                 JSONObject item = data.getJSONObject(0);
                 if (item.has("url")) return item.getString("url");
@@ -204,7 +204,7 @@ public class ImageVideoGenerator {
         c.disconnect();
 
         JSONObject j = new JSONObject(sb.toString());
-        JSONArray content = j.getJSONArray("content");
+        JSONArray content = j.JSONArray("content");
         if (content.length() == 0) throw new Exception("Claude 未返回内容");
         JSONObject item = content.getJSONObject(0);
         if (!item.has("text")) throw new Exception("Claude 未返回文本");
@@ -213,7 +213,7 @@ public class ImageVideoGenerator {
 
     public static Bitmap base64ToBitmap(String b64) {
         try {
-            byte[] decoded = Base64.decode(b64, Base64.DEFAULT);
+            byte[] decoded = Base64.decode(b64, Base64.NO_WRAP);
             return BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
         } catch (Exception e) {
             return null;
