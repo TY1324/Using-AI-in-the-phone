@@ -3,15 +3,18 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+        maven { url = uri("https://maven.aliyun.com/repository/central") }
     }
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
+        maven { url = uri("https://maven.aliyun.com/repository/central") }
     }
 }
 
-rootProject.name = "AiChat"
+rootProject.name = "Using-AI-in-the-phone"
+include(":app")
