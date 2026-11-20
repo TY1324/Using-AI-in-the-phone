@@ -113,6 +113,12 @@ public class MainActivity extends Activity {
         return tv;
     }
 
+    private void removeBubble(TextView tv) {
+        if (tv == null) return;
+        list.removeView(tv);
+        scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+    }
+
     private void doSend() {
         final String text = input.getText().toString().trim();
         if (text.isEmpty() || busy) return;
@@ -129,7 +135,15 @@ public class MainActivity extends Activity {
                 history.add(new String[]{"assistant", acc.toString()});
             } catch (Exception e) {
                 final String msg = e.getMessage() == null ? e.toString() : e.getMessage();
-                ui.post(() -> status.setText("出错：" + msg));
+                ui.post(() -> {
+                    if (acc.length() == 0) {
+                        removeBubble(reply);
+                        history.remove(history.size() - 1);
+                    } else {
+                        reply.setText(acc.toString() + "\n（生成中断）");
+                    }
+                    status.setText("出错：" + msg);
+                });
             } finally {
                 busy = false;
             }
