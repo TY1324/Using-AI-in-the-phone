@@ -46,19 +46,19 @@ public class FileParser {
         ZipInputStream zis = new ZipInputStream(in);
         ZipEntry entry;
         StringBuilder sb = new StringBuilder();
-        java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
         while ((entry = zis.getNextEntry()) != null) {
             if (entry.isDirectory()) continue;
             java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
             byte[] buf = new byte[8192];
             int n;
             while ((n = zis.read(buf)) != -1) baos.write(buf, 0, n);
-            entries.put(entry.getName(), baos.toByteArray());
             String nm = entry.getName().toLowerCase();
-            if (nm.endsWith(".txt") || nm.endsWith(".md") || nm.endsWith(".json") || nm.endsWith(".html") || nm.endsWith(".htm")) {
+            if (nm.endsWith(".txt") || nm.endsWith(".md") || nm.endsWith(".json")
+                    || nm.endsWith(".html") || nm.endsWith(".htm")) {
                 try {
                     String content = new String(baos.toByteArray(), StandardCharsets.UTF_8);
-                    sb.append("===== ").append(entry.getName()).append(" =====\n").append(content).append("\n\n");
+                    sb.append("===== ").append(entry.getName()).append(" =====\n")
+                            .append(content).append("\n\n");
                 } catch (Exception ignored) {
                 }
             }
@@ -119,7 +119,6 @@ public class FileParser {
                     if (end == -1) break;
                     String text = xml.substring(gt + 1, end);
                     sb.append(text);
-                    int pStart = xml.lastIndexOf("<w:p", start);
                     int pEnd = xml.indexOf("</w:p>", end);
                     if (pEnd != -1 && pEnd > end && pEnd < end + 50) {
                         sb.append("\n");
@@ -231,5 +230,42 @@ public class FileParser {
             if (close == open) break;
             String text = raw.substring(open + 1, close);
             int after = close + 1;
-            while (after < raw.length() && (raw.charAt(after) == ' ' || raw.charAt(after) == '\n' || raw.charAt(after) == '\r')) after++;
-            if (after + 2 <= raw.lengt
+            while (after < raw.length()
+                    && (raw.charAt(after) == ' ' || raw.charAt(after) == '\n'
+                    || raw.charAt(after) == '\r')) {
+                after++;
+            }
+            if (after + 2 <= raw.length()) {
+                String op = raw.substring(after, Math.min(after + 2, raw.length()));
+                if (op.startsWith("Tj") || op.startsWith("TJ")) {
+                    text = text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t")
+                            .replace("\\(", "(").replace("\\)", ")").replace("\\\\", "\\");
+                    sb.append(text);
+                }
+            }
+            idx = close + 1;
+        }
+        if (sb.length() == 0) throw new Exception("PDF 文本提取失败，请转换为文本文件");
+        return sb.toString();
+    }
+
+    private static String parseOfficeLegacy(InputStream in) throws Exception {
+        return readText(in);
+    }
+
+    private static String stripTags(String html) {
+        StringBuilder sb = new StringBuilder();
+        boolean inTag = false;
+        for (int i = 0; i < html.length(); i++) {
+            char c = html.charAt(i);
+            if (c == '<') { inTag = true; continue; }
+            if (c == '>') { inTag = false; sb.append(' '); continue; }
+            if (!inTag) sb.append(c);
+        }
+        String s = sb.toString();
+        s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                .replace("&nbsp;", " ").replace("&quot;", "\"").replace("&#39;", "'");
+        s = s.replaceAll("\\s+", " ").trim();
+        return s;
+    }
+}
