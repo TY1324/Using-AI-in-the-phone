@@ -29,21 +29,20 @@ public class Settings {
     public String globalHost() { return get("g_host", "https://api.deepseek.com"); }
     public String globalKey() { return get("g_key", ""); }
     public String globalModel() { return get("g_model", "deepseek-chat"); }
+    public boolean globalThinking() { return get("g_thinking", "off").equals("on"); }
 
-    public void saveGlobal(String type, String host, String key, String model) {
+    public void saveGlobal(String type, String host, String key, String model, boolean thinking) {
         sp.edit()
                 .putString("g_type", type)
                 .putString("g_host", host)
                 .putString("g_key", key)
                 .putString("g_model", model)
+                .putString("g_thinking", thinking ? "on" : "off")
                 .apply();
     }
 
-    // ===== 模型预设 =====
-    // 字段顺序: name, type, host, key, model, maxTokens, temperature, skill, note
-
     public void savePreset(String name, String type, String host, String key, String model,
-                           String maxTokens, String temperature, String skill, String note) {
+                           String maxTokens, String temperature, String skill, String note, boolean thinking) {
         try {
             JSONArray arr = getPresetsArray();
             JSONArray out = new JSONArray();
@@ -61,6 +60,7 @@ public class Settings {
             o.put("temperature", temperature);
             o.put("skill", skill);
             o.put("note", note);
+            o.put("thinking", thinking);
             out.put(o);
             sp.edit().putString("presets", out.toString()).apply();
         } catch (Exception ignored) {
@@ -82,7 +82,8 @@ public class Settings {
                         o.optString("maxTokens", "4096"),
                         o.optString("temperature", ""),
                         o.optString("skill", ""),
-                        o.optString("note", "")
+                        o.optString("note", ""),
+                        String.valueOf(o.optBoolean("thinking", false))
                 });
             }
         } catch (Exception ignored) {
