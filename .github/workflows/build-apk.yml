@@ -3,6 +3,9 @@ name: Build APK
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,33 +17,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: SDK info
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME/platforms" || true
-
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
       - name: Build
-        shell: bash
-        run: |
-          set +e
-          gradle assembleDebug --no-daemon --stacktrace > build.log 2>&1
-          CODE=$?
-          echo "exit code = $CODE"
-          echo "----- first 50 lines -----"
-          head -n 50 build.log
-          echo "----- key errors -----"
-          grep -n -m 30 -E "^e: |error:|FAILURE|What went wrong|Caused by|Exception" build.log || true
-          echo "----- tail 25 lines -----"
-          tail -n 25 build.log
-          exit $CODE
+        run: gradle assembleDebug --no-daemon
+
+      - name: Find APK
+        run: find . -name "*.apk" -type f
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: build/outputs/apk/debug/app-debug.apk
+          path: "**/*.apk"
+          if-no-files-found: warn
+
+      - name: Release APK
+        if: success()
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-build${{ github.run_number }}
+          files: "**/*.apk"
