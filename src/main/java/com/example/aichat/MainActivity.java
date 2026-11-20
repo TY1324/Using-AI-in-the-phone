@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -49,14 +50,21 @@ public class MainActivity extends Activity {
     private HttpURLConnection currentConn = null;
     private Thread workThread = null;
 
+    private int bgColor;
+    private int textColor;
+    private int bubbleUser;
+    private int bubbleAi;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sp = getSharedPreferences("chat", Context.MODE_PRIVATE);
         store = new Store(this);
+        applyTheme();
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(bgColor);
 
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -65,6 +73,7 @@ public class MainActivity extends Activity {
         title.setText("AI Chat");
         title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(textColor);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         bar.addView(title, tp);
         Button sessions = new Button(this);
@@ -96,6 +105,8 @@ public class MainActivity extends Activity {
         bottom.setPadding(dp(12), dp(8), dp(12), dp(12));
         input = new EditText(this);
         input.setHint("输入内容…");
+        input.setTextColor(textColor);
+        input.setHintTextColor(0xFF9E9E9E);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         bottom.addView(input, ip);
         sendBtn = new Button(this);
@@ -117,6 +128,23 @@ public class MainActivity extends Activity {
             currentConvId = store.newConversation();
         }
         loadHistory(currentConvId);
+    }
+
+    private void applyTheme() {
+        int night = getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        boolean dark = night == Configuration.UI_MODE_NIGHT_YES;
+        if (dark) {
+            bgColor = 0xFF121212;
+            textColor = 0xFFE8E8E8;
+            bubbleUser = 0xFF2C3E50;
+            bubbleAi = 0xFF1E1E1E;
+        } else {
+            bgColor = 0xFFFFFFFF;
+            textColor = 0xFF1A1A1A;
+            bubbleUser = 0xFFE3F2FD;
+            bubbleAi = 0xFFF2F2F2;
+        }
     }
 
     private int dp(int v) {
@@ -141,8 +169,9 @@ public class MainActivity extends Activity {
             tv.setText(text);
         }
         tv.setTextSize(15);
+        tv.setTextColor(textColor);
         tv.setPadding(dp(12), dp(8), dp(12), dp(8));
-        tv.setBackgroundColor("user".equals(role) ? 0xFFE3F2FD : 0xFFF2F2F2);
+        tv.setBackgroundColor("user".equals(role) ? bubbleUser : bubbleAi);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         p.topMargin = dp(6);
