@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android") version "1.9.24"
 }
 
+repositories {
+    google()
+    mavenCentral()
+}
+
 android {
     namespace = "com.example.aichat"
     compileSdk = 34
