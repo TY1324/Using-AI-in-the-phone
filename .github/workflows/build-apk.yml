@@ -14,22 +14,36 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Memory check
+        run: free -m && java -version
+
       - uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.2'
 
       - name: Build
+        shell: bash
         run: |
           set +e
           gradle assembleDebug --no-daemon --stacktrace > build.log 2>&1
           CODE=$?
-          echo "=================== DIAG START ==================="
-          grep -m 1 -A 25 "What went wrong" build.log || true
-          echo "=================== FIRST ERRORS ==================="
-          grep -m 15 "^e: " build.log || true
-          echo "=================== TAIL ==================="
-          tail -n 40 build.log
-          echo "=================== DIAG END ==================="
+          {
+            echo "## 构建结果"
+            if [ $CODE -eq 0 ]; then echo "✅ 成功"; else echo "❌ 失败"; fi
+            echo ""
+            echo "### 日志前 45 行（启动阶段）"
+            echo '```'
+            head -n 45 build.log
+            echo '```'
+            echo "### 含 error 的行"
+            echo '```'
+            grep -i -m 25 -E "error|exception|outofmemory|failed|invalid|cannot" build.log | head -n 25
+            echo '```'
+            echo "### 日志后 25 行"
+            echo '```'
+            tail -n 25 build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           exit $CODE
 
       - name: Upload APK
