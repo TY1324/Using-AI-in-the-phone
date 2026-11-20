@@ -3,9 +3,6 @@ name: Build APK
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,27 +14,21 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
       - name: Build
-        run: gradle assembleDebug --no-daemon
-
-      - name: Find APK
-        run: find . -name "*.apk" -type f
+        run: |
+          gradle assembleDebug --no-daemon
+          ls -la app/build/outputs/apk/debug/
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: "**/*.apk"
-          if-no-files-found: warn
-
-      - name: Release APK
-        if: success()
-        continue-on-error: true
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v0.1.0-build${{ github.run_number }}
-          files: "**/*.apk"
+          name: app-debug-v0.2.0
+          path: app/build/outputs/apk/debug/app-debug.apk
