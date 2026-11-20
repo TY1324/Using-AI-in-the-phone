@@ -14,13 +14,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.9'
 
       - name: Build
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle assembleDebug --no-daemon --stacktrace > build.log 2>&1
+          CODE=$?
+          echo "=================== DIAG START ==================="
+          grep -m 1 -A 25 "What went wrong" build.log || true
+          echo "=================== FIRST ERRORS ==================="
+          grep -m 15 "^e: " build.log || true
+          echo "=================== TAIL ==================="
+          tail -n 40 build.log
+          echo "=================== DIAG END ==================="
+          exit $CODE
 
       - name: Upload APK
         if: success()
