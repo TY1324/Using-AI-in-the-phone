@@ -64,6 +64,8 @@ public class MainActivity extends Activity {
     private int bubbleAi;
 
     private static final int PICK_IMAGE = 1001;
+    private static final int REQUEST_SAVE = 1002;
+    private static final int REQUEST_OPEN = 1003;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -130,6 +132,16 @@ public class MainActivity extends Activity {
         fileBtn.setOnClickListener(v -> FileHelper.pick(this));
         bottom.addView(fileBtn);
 
+        Button backupBtn = new Button(this);
+        backupBtn.setText("备份");
+        backupBtn.setOnClickListener(v -> doBackup());
+        bottom.addView(backupBtn);
+
+        Button restoreBtn = new Button(this);
+        restoreBtn.setText("恢复");
+        restoreBtn.setOnClickListener(v -> doRestore());
+        bottom.addView(restoreBtn);
+
         input = new EditText(this);
         input.setHint("输入内容…");
         input.setTextColor(textColor);
@@ -183,6 +195,45 @@ public class MainActivity extends Activity {
                     ui.post(() -> status.setText(msg));
                 }
             });
+        } else if (requestCode == REQUEST_SAVE) {
+            if (resultCode == RESULT_OK && data != null) {
+                Uri uri = data.getData();
+                new Thread(() -> {
+                    try {
+                        String json = store.exportAll();
+                        OutputStream os = getContentResolver().openOutputStream(uri);
+                        os.write(json.getBytes(StandardCharsets.UTF_8));
+                        os.close();
+                        ui.post(() -> status.setText("备份已保存"));
+                    } catch (Exception e) {
+                        ui.post(() -> status.setText("备份失败：" + e.getMessage()));
+                    }
+                }).start();
+            }
+        } else if (requestCode == REQUEST_OPEN) {
+            if (resultCode == RESULT_OK && data != null) {
+                Uri uri = data.getData();
+                new Thread(() -> {
+                    try {
+                        InputStream is = getContentResolver().openInputStream(uri);
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+                        is.close();
+                        String json = baos.toString("UTF-8");
+                        store.importAll(json);
+                        ui.post(() -> {
+                            status.setText("恢复完成");
+                            currentConvId = store.getLatestConversationId();
+                            if (currentConvId == -1) currentConvId = store.newConversation();
+                            loadHistory(currentConvId);
+                        });
+                    } catch (Exception e) {
+                        ui.post(() -> status.setText("恢复失败：" + e.getMessage()));
+                    }
+                }).start();
+            }
         }
     }
 
@@ -191,6 +242,21 @@ public class MainActivity extends Activity {
         i.setType("image/*");
         i.addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(i, PICK_IMAGE);
+    }
+
+    private void doBackup() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE, "aichat_backup.json");
+        startActivityForResult(intent, REQUEST_SAVE);
+    }
+
+    private void doRestore() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        startActivityForResult(intent, REQUEST_OPEN);
     }
 
     private void handleImage(Uri uri) {
