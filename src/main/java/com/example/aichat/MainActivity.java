@@ -3,16 +3,23 @@ package com.example.aichat;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -20,9 +27,8 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -39,6 +45,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String[]> history = new ArrayList<>();
+    private final List<String> pendingImages = new ArrayList<>();
     private Settings settings;
     private Store store;
     private long currentConvId = -1;
@@ -53,6 +60,8 @@ public class MainActivity extends Activity {
     private int textColor;
     private int bubbleUser;
     private int bubbleAi;
+
+    private static final int PICK_IMAGE = 1001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -106,6 +115,10 @@ public class MainActivity extends Activity {
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         bottom.setPadding(dp(12), dp(8), dp(12), dp(12));
+        Button imgBtn = new Button(this);
+        imgBtn.setText("图");
+        imgBtn.setOnClickListener(v -> pickImage());
+        bottom.addView(imgBtn);
         input = new EditText(this);
         input.setHint("输入内容…");
         input.setTextColor(textColor);
@@ -131,6 +144,40 @@ public class MainActivity extends Activity {
             currentConvId = store.newConversation();
         }
         loadHistory(currentConvId);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PICK_IMAGE && resultCode == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri == null) return;
+            try {
+                InputStream in = getContentResolver().openInputStream(uri);
+                Bitmap bmp = BitmapFactory.decodeStream(in);
+                if (in != null) in.close();
+                if (bmp == null) return;
+                int max = 1024;
+                int w = bmp.getWidth(), h = bmp.getHeight();
+                if (w > max || h > max) {
+                    float scale = Math.min((float) max / w, (float) max / h);
+                    bmp = Bitmap.createScaledBitmap(bmp, (int) (w * scale), (int) (h * scale), true);
+                }
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                bmp.compress(Bitmap.CompressFormat.JPEG, 80, baos);
+                String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                pendingImages.add(b64);
+                status.setText("已添加图片 " + pendingImages.size() + " 张，发送时一起上传");
+            } catch (Exception e) {
+                status.setText("图片读取失败：" + e.getMessage());
+            }
+        }
+    }
+
+    private void pickImage() {
+        Intent i = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        i.setType("image/*");
+        startActivityForResult(i, PICK_IMAGE);
     }
 
     private void applyTheme() {
@@ -191,18 +238,28 @@ public class MainActivity extends Activity {
 
     private void doSend() {
         final String text = input.getText().toString().trim();
-        if (text.isEmpty() || busy) return;
+        if (text.isEmpty() && pendingImages.isEmpty()) return;
+        if (busy) return;
         input.setText("");
         status.setText("");
         busy = true;
         cancelled = false;
         sendBtn.setText("停止");
-        addBubble("user", text);
-        history.add(new String[]{"user", text});
-        store.saveMessage(currentConvId, "user", text);
+
+        StringBuilder shown = new StringBuilder();
+        if (!text.isEmpty()) shown.append(text);
+        if (!pendingImages.isEmpty()) {
+            if (shown.length() > 0) shown.append("\n");
+            shown.append("[图片 x").append(pendingImages.size()).append("]");
+        }
+        addBubble("user", shown.toString());
+        store.saveMessage(currentConvId, "user", shown.toString());
+
+        List<String> imgs = new ArrayList<>(pendingImages);
+        pendingImages.clear();
 
         if (store.countMessages(currentConvId) == 1) {
-            String t = text.length() > 20 ? text.substring(0, 20) : text;
+            String t = text.isEmpty() ? "图片" : (text.length() > 20 ? text.substring(0, 20) : text);
             store.updateTitle(currentConvId, t);
         }
 
@@ -210,7 +267,7 @@ public class MainActivity extends Activity {
         workThread = new Thread(() -> {
             StringBuilder acc = new StringBuilder();
             try {
-                stream(acc, reply);
+                stream(acc, reply, text, imgs);
                 if (cancelled) {
                     ui.post(() -> {
                         if (acc.length() == 0) {
@@ -278,7 +335,7 @@ public class MainActivity extends Activity {
         };
     }
 
-    private void stream(StringBuilder acc, TextView reply) throws Exception {
+    private void stream(StringBuilder acc, TextView reply, String text, List<String> imgs) throws Exception {
         String[] conf = resolveConfig();
         String type = conf[0].toUpperCase();
         String host = conf[1].trim();
@@ -298,18 +355,36 @@ public class MainActivity extends Activity {
         }
         for (String[] m : history) {
             if (m[1] == null || m[1].trim().isEmpty()) continue;
+            if (m[1].startsWith("[图片 x")) continue;
             JSONObject o = new JSONObject();
-            if ("GEMINI".equals(type)) {
-                o.put("role", "user".equals(m[0]) ? "user" : "model");
-                JSONArray parts = new JSONArray();
-                parts.put(new JSONObject().put("text", m[1]));
-                o.put("parts", parts);
-            } else {
-                o.put("role", "user".equals(m[0]) ? "user" : "assistant");
-                o.put("content", m[1]);
-            }
+            o.put("role", "user".equals(m[0]) ? "user" : "assistant");
+            o.put("content", m[1]);
             msgs.put(o);
         }
+
+        JSONObject userMsg = new JSONObject();
+        userMsg.put("role", "user");
+        if (type.equals("OPENAI") && !imgs.isEmpty()) {
+            JSONArray parts = new JSONArray();
+            if (!text.isEmpty()) {
+                JSONObject t = new JSONObject();
+                t.put("type", "text");
+                t.put("text", text);
+                parts.put(t);
+            }
+            for (String b64 : imgs) {
+                JSONObject img = new JSONObject();
+                img.put("type", "image_url");
+                JSONObject urlObj = new JSONObject();
+                urlObj.put("url", "data:image/jpeg;base64," + b64);
+                img.put("image_url", urlObj);
+                parts.put(img);
+            }
+            userMsg.put("content", parts);
+        } else {
+            userMsg.put("content", text.isEmpty() ? "[图片]" : text);
+        }
+        msgs.put(userMsg);
 
         JSONObject body = new JSONObject();
         String url;
@@ -359,7 +434,7 @@ public class MainActivity extends Activity {
             InputStream es = c.getErrorStream();
             StringBuilder eb = new StringBuilder();
             if (es != null) {
-                BufferedReader er = new BufferedReader(new InputStreamReader(es, StandardCharsets.UTF_8));
+                java.io.BufferedReader er = new java.io.BufferedReader(new java.io.InputStreamReader(es, StandardCharsets.UTF_8));
                 String l;
                 while ((l = er.readLine()) != null) eb.append(l);
                 er.close();
@@ -369,8 +444,8 @@ public class MainActivity extends Activity {
             throw new Exception("HTTP " + code + " " + detail);
         }
 
-        BufferedReader br = new BufferedReader(
-                new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+        java.io.BufferedReader br = new java.io.BufferedReader(
+                new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
         String line;
         while ((line = br.readLine()) != null) {
             if (cancelled) break;
