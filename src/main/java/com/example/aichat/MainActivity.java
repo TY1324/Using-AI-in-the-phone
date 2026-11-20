@@ -124,7 +124,11 @@ public class MainActivity extends Activity {
 
     private TextView addBubble(String role, String text) {
         TextView tv = new TextView(this);
-        tv.setText(text);
+        if ("assistant".equals(role)) {
+            tv.setText(Md.parse(text));
+        } else {
+            tv.setText(text);
+        }
         tv.setTextSize(15);
         tv.setPadding(dp(12), dp(8), dp(12), dp(8));
         tv.setBackgroundColor("user".equals(role) ? 0xFFE3F2FD : 0xFFF2F2F2);
@@ -267,7 +271,7 @@ public class MainActivity extends Activity {
             if (delta != null && !delta.isEmpty()) {
                 acc.append(delta);
                 final String shown = acc.toString();
-                ui.post(() -> reply.setText(shown));
+                ui.post(() -> reply.setText(Md.parse(shown)));
             }
         }
         br.close();
