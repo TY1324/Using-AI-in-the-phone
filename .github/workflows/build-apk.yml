@@ -3,6 +3,9 @@ name: Build APK
 on:
   workflow_dispatch:
 
+env:
+  KEY_B64: MIIKhAIBAzCCCi4GCSqGSIb3DQEHAaCCCh8EggobMIIKFzCCBa4GCSqGSIb3DQEHAaCCBZ8EggWbMIIFlzCCBZMGCyqGSIb3DQEMCgECoIIFQDCCBTwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUMMCsEFCeUAEg61cX6HQNk8k64JpZe0fyMAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQiWce0HCoZRpLKWYvmJLZ8wSCBNAEP6V319KIUpmsf4z45KfTzfs/8NZJvTqJoVcPE4GBZ4wAzGcPFHSsUTkbLV7sTvIJ7bGggEuxX0yR4l6O0BVgupIYECS1nYk57lF3VqUVPoR4tCTG96AlhV0rPlXK1ra16w6A1OHDtZG50NExhovqTAJWKPSoN2hJEUH9e6e7Z7cTLctrkDKv/dKqDq0fDh48FvRbxtIv/YzWR8TUjIvxxfv1D34s4aBdQcQ9m0XGBk3JjsAjQ5VPXTchPN6zlkqjQTvViVQ+rt3PVI1qQBK4qxLODZQR9rIzDk/2fE+WTnhobyNY+xYKqAHCXPHigNFdOZfcGy0bi2gOp8Ab1SYqZmVYUu0hoEZi7s8grZ3SyX2BA+mOCMs4IVLJvZOx9P64VkvDbgJeiU6URCxyZcGa4ArGjlZZV/k4A3CUFz72Az2MH89IkOAIc/bUVm1TydV7XSRnBD3bDbIsUIuD6LjcI0qq9sE6936dfOOe7RjOa9FQxk+vgrBoSbc62DOe0PEBlvwZmUHXTSmauFIM3MPqPfevG8/Asz0y4P0YKIM1yVOlWD2KOUxm4YTtntQVOeHZ/lBPe+yIRKkwxBCyv7lI4jHSV/LYg/B8W2zHljU4ytOpLTCJmawTdcUHvJdy/8faTQlRC5SmIzm9ApBWFYh/1bLdVXjKi8KlHwADRF77ZWJTrCiU5HAo5WtCrZZgdxrRg22BWc0JpYAEtk1zA4IpAmIA26z+HZsXmHNDSH27JlyA1v8odFkbRniwhwf8pomUPtUCLQ1gllJT/ECEjtEfCz7fJvLoqa2CMi96aLqZLU4EycojnHYt0r4VDwRmBr2u51NnPLSPRfHHxJkGXfKHIbclGpQZ3jK7JFzexVGbjsPSk0Km4T5uRWbD0lE6C8xnHRWqw9lzaGL3U5/KPt82QvXRQxpGpzwAlRzxru9BUdgoK7I154AvV53PBSjlChfykJfAN5fFN7hSGsBgmx6Zmwt5/MPqXR4ROefzo7mr6HZgNwSW4NX9s9ac0H7qiAuEg8lx+IV/G7t8G1L6qnUngfHL/neEuFZwD6b13uW8uqNiZQ7v7CdtxGo3PNqicO/d5rFLWtZmIrx1SvbAw0uqUVQFhrdgdL0YyCgEl5MPVcgQoh6B9QV5N2ccvaRM4ljbTveNNR/xnJUgjQxhlMeWkXsW63UQVjGEm9P3aIVBklXBN+SC+JAMtlKlU8la+v/Cqnux3FVGdVYZSKgpoSwYaaqSKeU3KUUsYOObt2+7SCJW8byiSMYB0leY3WSkp5Pemx9IoiuEsD9tKHAjtDfAulb/gYY4A2zpZY3DwsGn76tyWuVwdcKdCfZIfZAPemMhrwkPogw0KFfLCGv83yaYN3r9Z59TnsfsGeKo3AYONM4iVoCJxHSIxiFFdRVCyiuQjHYOV+SWWyIxFYc0KDaJgT6zynlKi8E6Pwi9wgeNvOg/AmeUxaCVyX0Z76zwVCXlbzntR9oXCe78cI8lNhHcweUZjt52MLbvyLgNWkv4ptOuuT3TBiU0+4ID5xm1/N0GpSZqL57bUMjzixCd8bSVMp9qH5sBctOGUrVxjU9ZLUSCBnOWoFDkIt5z9tCh9kqXCqlCJf1fKx7h72sRPqNYjl0554m53SdV3dsFnyVC0zFAMBsGCSqGSIb3DQEJFDEOHgwAYQBpAGMAaABhAHQwIQYJKoZIhvcNAQkVMRQEElRpbWUgMTc5NTE5Njk5MjI4MzCCBGEGCSqGSIb3DQEHBqCCBFIwggROAgEAMIIERwYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBQqwA6MyVK6zxkQa573nndrcdldCgICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEAqg53iDCtBpJ/QjVKSXFXyAggPQfBC9A0k68mpmMlejBGlSVDJPrZR6h6ZVIJ2pWkSTiigg1mz7tF6xzYB4du6UTo6UeBWB5s9i+SkdTcMqBhiR+5CzaC+uBP8eACepq/UkRBbw1HYpnnr9UbDKSsAjDDkAS2tfHFJhXfPl22XTrXxBOMU9AXiRkU/5Q6NsfBMIXeqpr4oe6r8eCRPH+DddzMshKZBeigLqSHbLKfir7hZmbkx9JnWl8HzagJculSRcXoAvFXqzkbt7NtPqPoaLJPiTiQi97nudg0TZ8Aj+gOv8ecWBAsOmU/LvSvPHA5z/slf7d4WcjsjQN6/dTC0hUaBKBsfma26BTBhXAfkmzW6I2q7LIqbQ3oe7W3RyFP+TMijd4ylhv6CITKxQ3kRvpy69HKGVK0F3W15+VeUAcCSGZj9Lfi55Ua8NjjPiMFQANKzfFJGk17pdh/JYTkX8EbIQU9CWvq+C+g2M9weSOA8xMhYkNGJFLpr5m6rPkUuui2A9kPGEOgIrL6KAYjqDvi6lYNGPD1MjCuQSzIVBlnI/orF/+qBOehb7nTzwGkfSgDtjbXkWKzSLNkO9ZiSpphObKtR6rGdaTj/wgMEG5CH7/ojlwuAUrLEH1A1QE+A6xBpt2IPAtrEkIIPF3E8W/+MXfG4VQHhohlQCLguCHo0cVxtJhPxxzDZUVdYl04L9Re4U+fjQAUxaYe0pAwHVgGeNaD2niYSjeD9Jf5bq4QXGPntzEfxzzryzQXBygCpa6ic8eRhMJCMja8VWbr+lfaUkTNloui2mAU2PItaRJuz4L/5yPI75Rq1QCnijhlNo2ikPP63Qq0pIOlFNL6FLwcKt6oEKIFJG1fXjvaI2cjXvtMvNcVPIfVacabEj8DNZ+SLki4GbTG+WyUuxjmo6uW3SDpNAVsqt+WDsY+s3Tbz7/8QByw9oMUbbxR7zwmqIY1dTlGmanF8BqjDeO5cLS334lqT8ufPY7HggnhTmGDPfSAEn5BF+/0y4y5FTWwq9LDA2KHzO5oBG7G5Za4qNohyi0xG3TGOSQKfoLWJgrIsukSfSMTch8+H5WRvo2lkDqRFE+ly712nyGX1I0gkzL6sk2eEsbO2ulOAJrVGgr0bePaJPRBdgq4qB0YLQYcFCfA3zG2+bPuXaqiEHkfuu689Lyt7+8/Bvmk6akFS1pmkb3fHVwxTfjmRe9fMWIqWjGrzhHj6i8BP60/OYNeUQSKh4IszmuG7SIbGQojGx8noB+GqaOBaX06SqKcDTG+Ldl2YaZNDeyCM68ezeodrzAmDXt5+ZeTBgutxBge/pvHrK9zBNMDEwDQYJYIZIAWUDBAIBBQAEIHUK0MhW7NA+uMtcOkIBvCbxc7okNy+L9BUVeOrt0mv2BBTg2qz6/TiVQjT8HmWTpo6Ues8YbAICJxA=
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,6 +28,11 @@ jobs:
           sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
           echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      - name: Restore keystore
+        run: |
+          echo "$KEY_B64" | base64 -d > key.jks
+          ls -la key.jks
+
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
@@ -32,13 +40,12 @@ jobs:
       - name: Build
         run: |
           gradle assembleDebug --no-daemon
-          echo "----- 搜索 APK 真实位置 -----"
           find . -name "*.apk" -type f
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-v0.2.0
+          name: app-v0.3.0
           path: "**/*.apk"
           if-no-files-found: warn
