@@ -12,29 +12,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Show files
+        run: find . -maxdepth 6 -type f -not -path './.git/*' | sort
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - uses: android-actions/setup-android@v3
 
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
       - name: Build
-        run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+        run: gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Log on failure
-        if: failure()
+      - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: app-debug
+          path: build/outputs/apk/debug/app-debug.apk
 
       - name: Release APK
         if: success()
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.1.0-build${{ github.run_number }}
