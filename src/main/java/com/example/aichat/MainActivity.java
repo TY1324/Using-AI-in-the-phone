@@ -430,12 +430,16 @@ public class MainActivity extends Activity {
         }
         msgs.put(userMsg);
 
+        // === 上下文压缩 ===
+        int budget = ContextManager.parseInt(maxTokens, 4096) * 3; // 留 1/3 给输出
+        msgs = ContextManager.trimToBudget(msgs, budget);
+
         JSONObject body = new JSONObject();
         String url;
         HttpURLConnection c;
         if ("ANTHROPIC".equals(type)) {
             url = host + "/v1/messages";
-            body.put("model", model).put("max_tokens", parseInt(maxTokens, 4096))
+            body.put("model", model).put("max_tokens", ContextManager.parseInt(maxTokens, 4096))
                     .put("stream", true).put("messages", msgs);
             if (!temperature.isEmpty()) body.put("temperature", Double.parseDouble(temperature));
             c = (HttpURLConnection) new URL(url).openConnection();
@@ -455,7 +459,7 @@ public class MainActivity extends Activity {
         } else {
             url = host + "/v1/chat/completions";
             body.put("model", model).put("stream", true).put("messages", msgs);
-            body.put("max_tokens", parseInt(maxTokens, 4096));
+            body.put("max_tokens", ContextManager.parseInt(maxTokens, 4096));
             if (!temperature.isEmpty()) body.put("temperature", Double.parseDouble(temperature));
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setRequestProperty("Authorization", "Bearer " + key);
@@ -506,14 +510,6 @@ public class MainActivity extends Activity {
         br.close();
         c.disconnect();
         currentConn = null;
-    }
-
-    private int parseInt(String s, int def) {
-        try {
-            return Integer.parseInt(s.trim());
-        } catch (Exception e) {
-            return def;
-        }
     }
 
     private String extractDelta(String type, String data) {
