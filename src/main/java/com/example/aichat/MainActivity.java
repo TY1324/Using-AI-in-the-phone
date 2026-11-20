@@ -9,6 +9,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
@@ -108,7 +109,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         p.topMargin = dp(6);
         list.addView(tv, p);
-        scroll.post(() -> scroll.fullScroll(ScrollView.FOCUS_DOWN));
+        scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
         return tv;
     }
 
@@ -253,4 +254,53 @@ public class MainActivity extends Activity {
                 }
                 return sb.toString();
             } else {
-                JSONArray ch = j.
+                JSONArray ch = j.optJSONArray("choices");
+                if (ch == null) return "";
+                JSONObject c0 = ch.optJSONObject(0);
+                if (c0 == null) return "";
+                JSONObject d = c0.optJSONObject("delta");
+                return d == null ? "" : d.optString("content", "");
+            }
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void showSettings() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), dp(8));
+
+        final EditText etType = new EditText(this);
+        etType.setHint("OPENAI / ANTHROPIC / GEMINI");
+        etType.setText(cfg("type", "OPENAI"));
+        box.addView(etType);
+
+        final EditText etHost = new EditText(this);
+        etHost.setHint("https://api.deepseek.com");
+        etHost.setText(cfg("host", "https://api.deepseek.com"));
+        box.addView(etHost);
+
+        final EditText etKey = new EditText(this);
+        etKey.setHint("API Key");
+        etKey.setText(cfg("key", ""));
+        box.addView(etKey);
+
+        final EditText etModel = new EditText(this);
+        etModel.setHint("模型 ID，如 deepseek-chat");
+        etModel.setText(cfg("model", "deepseek-chat"));
+        box.addView(etModel);
+
+        new AlertDialog.Builder(this)
+                .setTitle("设置")
+                .setView(box)
+                .setPositiveButton("保存", (d, w) -> sp.edit()
+                        .putString("type", etType.getText().toString().trim().toUpperCase())
+                        .putString("host", etHost.getText().toString().trim())
+                        .putString("key", etKey.getText().toString().trim())
+                        .putString("model", etModel.getText().toString().trim())
+                        .apply())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+}
