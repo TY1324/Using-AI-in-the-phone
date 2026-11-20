@@ -1,6 +1,10 @@
 package com.example.aichat;
 
+import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 
@@ -18,57 +22,55 @@ public class FileHelper {
         void onError(String msg);
     }
 
-    public static void pickFile(Context context) {
-        android.content.Intent i = new android.content.Intent(
-                android.content.Intent.ACTION_GET_CONTENT);
+    public static void pick(Context context) {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("*/*");
-        i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-        ((android.app.Activity) context).startActivityForResult(i, PICK_FILE);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        ((Activity) context).startActivityForResult(i, PICK_FILE);
     }
 
-    public static void handleResult(Context context, int resultCode,
-                                    android.content.Intent data, Callback cb) {
-        if (resultCode != android.app.Activity.RESULT_OK || data == null) return;
-        Uri uri = data.getData();
+    public static void handle(final Context context, int resultCode, Intent data, final Callback cb) {
+        if (resultCode != Activity.RESULT_OK || data == null) return;
+        final Uri uri = data.getData();
         if (uri == null) {
             cb.onError("无法读取文件");
             return;
         }
-        String name = resolveName(context, uri);
-        new Thread(() -> {
-            try {
-                String text = readText(context, uri);
-                if (text.length() > 4000) text = text.substring(0, 4000);
-                ((android.os.Handler) null);
-                cb.onText(name, text);
-            } catch (Exception e) {
-                cb.onError("读取失败：" + e.getMessage());
+        final String name = resolveName(context, uri);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String text = readText(context, uri);
+                    if (text.length() > 4000) text = text.substring(0, 4000);
+                    cb.onText(name, text);
+                } catch (Exception e) {
+                    cb.onError("读取失败：" + e.getMessage());
+                }
             }
         }).start();
     }
 
     private static String resolveName(Context context, Uri uri) {
+        Cursor c = null;
         try {
-            android.content.ContentResolver cr = context.getContentResolver();
-            android.database.Cursor c = cr.query(uri,
-                    new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
-            if (c != null && c.moveToFirst()) {
-                String n = c.getString(0);
-                c.close();
-                return n;
+            ContentResolver cr = context.getContentResolver();
+            c = cr.query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (c != null && c.moveToNext()) {
+                return c.getString(0);
             }
-            if (c != null) c.close();
         } catch (Exception ignored) {
+        } finally {
+            if (c != null) c.close();
         }
         return "文件";
     }
 
     private static String readText(Context context, Uri uri) throws Exception {
-        android.content.ContentResolver cr = context.getContentResolver();
+        ContentResolver cr = context.getContentResolver();
         InputStream in = cr.openInputStream(uri);
         if (in == null) throw new Exception("无法打开");
-        BufferedReader br = new BufferedReader(
-                new InputStreamReader(in, StandardCharsets.UTF_8));
+        BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
         String line;
         while ((line = br.readLine()) != null) {
