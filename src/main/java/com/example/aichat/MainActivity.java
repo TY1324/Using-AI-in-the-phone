@@ -44,6 +44,11 @@ public class MainActivity extends Activity {
     private long currentConvId = -1;
     private boolean busy = false;
 
+    private Button sendBtn;
+    private volatile boolean cancelled = false;
+    private HttpURLConnection currentConn = null;
+    private Thread workThread = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -93,10 +98,16 @@ public class MainActivity extends Activity {
         input.setHint("输入内容…");
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         bottom.addView(input, ip);
-        Button send = new Button(this);
-        send.setText("发送");
-        send.setOnClickListener(v -> doSend());
-        bottom.addView(send);
+        sendBtn = new Button(this);
+        sendBtn.setText("发送");
+        sendBtn.setOnClickListener(v -> {
+            if (busy) {
+                doStop();
+            } else {
+                doSend();
+            }
+        });
+        bottom.addView(sendBtn);
         root.addView(bottom);
 
         setContentView(root);
@@ -152,6 +163,8 @@ public class MainActivity extends Activity {
         input.setText("");
         status.setText("");
         busy = true;
+        cancelled = false;
+        sendBtn.setText("停止");
         addBubble("user", text);
         history.add(new String[]{"user", text});
         store.saveMessage(currentConvId, "user", text);
@@ -162,27 +175,56 @@ public class MainActivity extends Activity {
         }
 
         final TextView reply = addBubble("assistant", "");
-        new Thread(() -> {
+        workThread = new Thread(() -> {
             StringBuilder acc = new StringBuilder();
             try {
                 stream(acc, reply);
-                history.add(new String[]{"assistant", acc.toString()});
-                store.saveMessage(currentConvId, "assistant", acc.toString());
+                if (cancelled) {
+                    ui.post(() -> {
+                        if (acc.length() == 0) {
+                            removeBubble(reply);
+                            history.remove(history.size() - 1);
+                        } else {
+                            reply.setText(Md.parse(acc.toString() + "\n（已停止）"));
+                        }
+                    });
+                } else {
+                    history.add(new String[]{"assistant", acc.toString()});
+                    store.saveMessage(currentConvId, "assistant", acc.toString());
+                }
             } catch (Exception e) {
+                if (cancelled) return;
                 final String msg = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> {
                     if (acc.length() == 0) {
                         removeBubble(reply);
                         history.remove(history.size() - 1);
                     } else {
-                        reply.setText(acc.toString() + "\n（生成中断）");
+                        reply.setText(Md.parse(acc.toString() + "\n（生成中断）"));
                     }
                     status.setText("出错：" + msg);
                 });
             } finally {
-                busy = false;
+                ui.post(() -> {
+                    busy = false;
+                    sendBtn.setText("发送");
+                });
             }
-        }).start();
+        });
+        workThread.start();
+    }
+
+    private void doStop() {
+        cancelled = true;
+        if (currentConn != null) {
+            try {
+                currentConn.disconnect();
+            } catch (Exception ignored) {
+            }
+        }
+        if (workThread != null) {
+            workThread.interrupt();
+        }
     }
 
     private String cfg(String key, String def) {
@@ -234,6 +276,7 @@ public class MainActivity extends Activity {
             c.setRequestProperty("Authorization", "Bearer " + key);
         }
 
+        currentConn = c;
         c.setRequestMethod("POST");
         c.setRequestProperty("Content-Type", "application/json");
         c.setDoOutput(true);
@@ -264,6 +307,7 @@ public class MainActivity extends Activity {
                 new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
         String line;
         while ((line = br.readLine()) != null) {
+            if (cancelled) break;
             if (!line.startsWith("data:")) continue;
             String data = line.substring(5).trim();
             if ("[DONE]".equals(data)) break;
@@ -276,6 +320,7 @@ public class MainActivity extends Activity {
         }
         br.close();
         c.disconnect();
+        currentConn = null;
     }
 
     private String extractDelta(String type, String data) {
