@@ -18,18 +18,17 @@ public class ContextManager {
 
     public static int estimateTokens(JSONArray msgs) {
         int total = 0;
+        if (msgs == null) return 0;
         for (int i = 0; i < msgs.length(); i++) {
             JSONObject m = msgs.optJSONObject(i);
             if (m == null) continue;
-            String content = m.getString("content");
+            String content = m.optString("content", "");
             if (content.isEmpty()) {
                 JSONArray parts = m.optJSONArray("parts");
                 if (parts != null) {
                     for (int j = 0; j < parts.length(); j++) {
                         JSONObject p = parts.optJSONObject(j);
-                        if (p != null && p.has("text")) {
-                            total += estimateTokens(p.getString("text"));
-                        }
+                        if (p != null) total += estimateTokens(p.optString("text", ""));
                     }
                 }
             } else {
@@ -50,7 +49,7 @@ public class ContextManager {
         for (int i = 0; i < original.length(); i++) {
             JSONObject m = original.optJSONObject(i);
             if (m == null) continue;
-            String role = m.getString("role");
+            String role = m.optString("role", "");
             if ("system".equals(role)) {
                 sys.add(m);
             } else if (i >= original.length() - RECENT_KEEP) {
@@ -64,11 +63,14 @@ public class ContextManager {
         int used = 0;
         for (JSONObject m : sys) {
             result.put(m);
-            used += estimateTokens(m.getString("content"));
+            used += estimateTokens(m.optString("content", ""));
         }
 
         int recentTokens = 0;
-        for (JSONObject m : recent) recentTokens += estimateTokens(m.getString("content"));
+        for (JSONObject m : recent) {
+            recentTokens += estimateTokens(m.optString("content", ""));
+        }
+
         if (used + recentTokens > budgetTokens) {
             for (int i = Math.max(0, recent.size() - 5); i < recent.size(); i++) {
                 result.put(recent.get(i));
@@ -79,20 +81,20 @@ public class ContextManager {
         if (!middle.isEmpty()) {
             StringBuilder summary = new StringBuilder("[上文摘要] ");
             for (JSONObject m : middle) {
-                String c = m.getString("content");
+                String c = m.optString("content", "");
                 if (c.length() > 200) c = c.substring(0, 200);
-                summary.append(m.getString("role")).append(": ").append(c).append("; ");
-            }
-            JSONObject sumMsg = new JSONObject();
-            try {
-                sumMsg.put("role", "system");
-                sumMsg.put("content", summary.toString());
-            } catch (org.json.JSONException e) {
+                summary.append(m.optString("role", "")).append(": ").append(c).append("; ");
             }
             int sumTokens = estimateTokens(summary.toString());
             if (used + sumTokens + recentTokens <= budgetTokens) {
-                result.put(sumMsg);
-                used += sumTokens;
+                try {
+                    JSONObject sumMsg = new JSONObject();
+                    sumMsg.put("role", "system");
+                    sumMsg.put("content", summary.toString());
+                    result.put(sumMsg);
+                    used += sumTokens;
+                } catch (Exception ignored) {
+                }
             }
         }
 
