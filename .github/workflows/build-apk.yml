@@ -24,7 +24,6 @@ jobs:
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          ls $ANDROID_HOME/platforms
 
       - uses: gradle/actions/setup-gradle@v3
         with:
@@ -33,11 +32,13 @@ jobs:
       - name: Build
         run: |
           gradle assembleDebug --no-daemon
-          ls -la app/build/outputs/apk/debug/
+          echo "----- 搜索 APK 真实位置 -----"
+          find . -name "*.apk" -type f
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-v0.2.0
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: "**/*.apk"
+          if-no-files-found: warn
