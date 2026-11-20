@@ -1,0 +1,31 @@
+name: Generate Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore key.jks \
+            -alias aichat \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass aichat123456 \
+            -keypass aichat123456 \
+            -dname "CN=aichat, OU=dev, O=dev, L=city, ST=state, C=CN"
+
+      - name: Show base64
+        run: |
+          base64 -w0 key.jks > key.txt
+          echo "===BASE64_START==="
+          cat key.txt
+          echo ""
+          echo "===BASE64_END==="
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: key-jks
+          path: key.jks
