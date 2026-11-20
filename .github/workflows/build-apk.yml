@@ -14,8 +14,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Memory check
-        run: free -m && java -version
+      - name: SDK info
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
 
       - uses: gradle/actions/setup-gradle@v3
         with:
@@ -27,23 +29,13 @@ jobs:
           set +e
           gradle assembleDebug --no-daemon --stacktrace > build.log 2>&1
           CODE=$?
-          {
-            echo "## 构建结果"
-            if [ $CODE -eq 0 ]; then echo "✅ 成功"; else echo "❌ 失败"; fi
-            echo ""
-            echo "### 日志前 45 行（启动阶段）"
-            echo '```'
-            head -n 45 build.log
-            echo '```'
-            echo "### 含 error 的行"
-            echo '```'
-            grep -i -m 25 -E "error|exception|outofmemory|failed|invalid|cannot" build.log | head -n 25
-            echo '```'
-            echo "### 日志后 25 行"
-            echo '```'
-            tail -n 25 build.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "exit code = $CODE"
+          echo "----- first 50 lines -----"
+          head -n 50 build.log
+          echo "----- key errors -----"
+          grep -n -m 30 -E "^e: |error:|FAILURE|What went wrong|Caused by|Exception" build.log || true
+          echo "----- tail 25 lines -----"
+          tail -n 25 build.log
           exit $CODE
 
       - name: Upload APK
