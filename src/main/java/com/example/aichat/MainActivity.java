@@ -157,6 +157,7 @@ public class MainActivity extends Activity {
             currentConvId = store.newConversation();
         }
         loadHistory(currentConvId);
+        startForeService();
     }
 
     @Override
@@ -813,5 +814,14 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    private void startForeService() {
+        Intent i = new Intent(this, ForeService.class);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(i);
+        } else {
+            startService(i);
+        }
     }
 }
