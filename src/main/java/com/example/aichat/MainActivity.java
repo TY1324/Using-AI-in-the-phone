@@ -35,7 +35,9 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends Activity {
 
@@ -64,6 +66,8 @@ public class MainActivity extends Activity {
     private int bubbleAi;
 
     private String activeSkill = "";
+    private final List<String> subAgentNames = new ArrayList<>();
+    private final Map<String, String> subAgentResults = new HashMap<>();
 
     private static final int PICK_IMAGE = 1001;
     private static final int REQUEST_SAVE = 1002;
@@ -103,6 +107,10 @@ public class MainActivity extends Activity {
         skillBtn.setText("Skill");
         skillBtn.setOnClickListener(v -> showSkills());
         bar.addView(skillBtn);
+        Button subAgentBtn = new Button(this);
+        subAgentBtn.setText("子代理");
+        subAgentBtn.setOnClickListener(v -> showSubAgents());
+        bar.addView(subAgentBtn);
         Button settingsBtn = new Button(this);
         settingsBtn.setText("设置");
         settingsBtn.setOnClickListener(v -> showSettings());
@@ -242,6 +250,7 @@ public class MainActivity extends Activity {
             }
         }
     }
+
     private void pickImage() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("image/*");
@@ -406,6 +415,7 @@ public class MainActivity extends Activity {
         });
         workThread.start();
     }
+
     private void doStop() {
         cancelled = true;
         if (currentConn != null) {
@@ -587,6 +597,7 @@ public class MainActivity extends Activity {
         c.disconnect();
         currentConn = null;
     }
+
     private String extractDelta(String type, String data) {
         try {
             JSONObject j = new JSONObject(data);
@@ -966,6 +977,71 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    private void showSubAgents() {
+        if (subAgentNames.isEmpty()) {
+            status.setText("请先添加子代理");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("子代理管理")
+                .setItems(subAgentNames.toArray(new String[0]), (d, which) -> {
+                    String name = subAgentNames.get(which);
+                    runSubAgent(name);
+                })
+                .setNegativeButton("添加子代理", (d, w) -> addSubAgent())
+                .show();
+    }
+
+    private void addSubAgent() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), dp(8));
+
+        final EditText etName = new EditText(this);
+        etName.setHint("子代理名称");
+        box.addView(etName);
+
+        final EditText etSystem = new EditText(this);
+        etSystem.setHint("系统指令");
+        etSystem.setLines(4);
+        box.addView(etSystem);
+
+        final EditText etUser = new EditText(this);
+        etUser.setHint("用户指令");
+        etUser.setLines(2);
+        box.addView(etUser);
+
+        new AlertDialog.Builder(this)
+                .setTitle("添加子代理")
+                .setView(box)
+                .setPositiveButton("添加", (d, w) -> {
+                    String n = etName.getText().toString().trim();
+                    if (!n.isEmpty()) subAgentNames.add(n);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void runSubAgent(String name) {
+        status.setText("子代理运行中…");
+        new Thread(() -> {
+            try {
+                String[] conf = resolveConfig();
+                String system = "请严格按照你的角色和指令完成任务。";
+                String user = "请处理以下任务：\n" + name;
+                String result = SubAgent.run(conf[0], conf[1], conf[2], conf[3], system, user);
+                subAgentResults.put(name, result);
+                ui.post(() -> {
+                    addBubble("user", "[子代理 " + name + " 完成]\n" + result);
+                    store.saveMessage(currentConvId, "user", "[子代理 " + name + " 完成]\n" + result);
+                    status.setText("子代理完成");
+                });
+            } catch (Exception e) {
+                ui.post(() -> status.setText("子代理失败：" + e.getMessage()));
+            }
+        }).start();
     }
 
     private void doBackup() {
