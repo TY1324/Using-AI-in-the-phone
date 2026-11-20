@@ -21,14 +21,14 @@ public class ContextManager {
         for (int i = 0; i < msgs.length(); i++) {
             JSONObject m = msgs.optJSONObject(i);
             if (m == null) continue;
-            String content = m.readString("content");
+            String content = m.getString("content");
             if (content.isEmpty()) {
                 JSONArray parts = m.optJSONArray("parts");
                 if (parts != null) {
                     for (int j = 0; j < parts.length(); j++) {
                         JSONObject p = parts.optJSONObject(j);
                         if (p != null && p.has("text")) {
-                            total += estimateTokens(p.readString("text"));
+                            total += estimateTokens(p.getString("text"));
                         }
                     }
                 }
@@ -50,7 +50,7 @@ public class ContextManager {
         for (int i = 0; i < original.length(); i++) {
             JSONObject m = original.optJSONObject(i);
             if (m == null) continue;
-            String role = m.readString("role");
+            String role = m.getString("role");
             if ("system".equals(role)) {
                 sys.add(m);
             } else if (i >= original.length() - RECENT_KEEP) {
@@ -64,11 +64,11 @@ public class ContextManager {
         int used = 0;
         for (JSONObject m : sys) {
             result.put(m);
-            used += estimateTokens(m.readString("content"));
+            used += estimateTokens(m.getString("content"));
         }
 
         int recentTokens = 0;
-        for (JSONObject m : recent) recentTokens += estimateTokens(m.readString("content"));
+        for (JSONObject m : recent) recentTokens += estimateTokens(m.getString("content"));
         if (used + recentTokens > budgetTokens) {
             for (int i = Math.max(0, recent.size() - 5); i < recent.size(); i++) {
                 result.put(recent.get(i));
@@ -79,9 +79,9 @@ public class ContextManager {
         if (!middle.isEmpty()) {
             StringBuilder summary = new StringBuilder("[上文摘要] ");
             for (JSONObject m : middle) {
-                String c = m.readString("content");
+                String c = m.getString("content");
                 if (c.length() > 200) c = c.substring(0, 200);
-                summary.append(m.readString("role")).append(": ").append(c).append("; ");
+                summary.append(m.getString("role")).append(": ").append(c).append("; ");
             }
             JSONObject sumMsg = new JSONObject();
             try {
