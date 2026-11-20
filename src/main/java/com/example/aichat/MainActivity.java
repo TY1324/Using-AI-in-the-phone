@@ -40,12 +40,15 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String[]> history = new ArrayList<>();
     private SharedPreferences sp;
+    private Store store;
+    private long currentConvId = -1;
     private boolean busy = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sp = getSharedPreferences("chat", Context.MODE_PRIVATE);
+        store = new Store(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -59,6 +62,10 @@ public class MainActivity extends Activity {
         title.setTypeface(null, Typeface.BOLD);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         bar.addView(title, tp);
+        Button sessions = new Button(this);
+        sessions.setText("会话");
+        sessions.setOnClickListener(v -> showSessions());
+        bar.addView(sessions);
         Button settings = new Button(this);
         settings.setText("设置");
         settings.setOnClickListener(v -> showSettings());
@@ -93,10 +100,26 @@ public class MainActivity extends Activity {
         root.addView(bottom);
 
         setContentView(root);
+
+        currentConvId = store.getLatestConversationId();
+        if (currentConvId == -1) {
+            currentConvId = store.newConversation();
+        }
+        loadHistory(currentConvId);
     }
 
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    private void loadHistory(long convId) {
+        history.clear();
+        list.removeAllViews();
+        List<String[]> msgs = store.loadMessages(convId);
+        for (String[] m : msgs) {
+            history.add(new String[]{m[0], m[1]});
+            addBubble(m[0], m[1]);
+        }
     }
 
     private TextView addBubble(String role, String text) {
@@ -127,12 +150,20 @@ public class MainActivity extends Activity {
         busy = true;
         addBubble("user", text);
         history.add(new String[]{"user", text});
+        store.saveMessage(currentConvId, "user", text);
+
+        if (store.loadMessages(currentConvId).size() == 1) {
+            String t = text.length() > 20 ? text.substring(0, 20) : text;
+            store.updateTitle(currentConvId, t);
+        }
+
         final TextView reply = addBubble("assistant", "");
         new Thread(() -> {
             StringBuilder acc = new StringBuilder();
             try {
                 stream(acc, reply);
                 history.add(new String[]{"assistant", acc.toString()});
+                store.saveMessage(currentConvId, "assistant", acc.toString());
             } catch (Exception e) {
                 final String msg = e.getMessage() == null ? e.toString() : e.getMessage();
                 ui.post(() -> {
@@ -278,6 +309,32 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private void showSessions() {
+        List<String[]> convs = store.listConversations();
+        String[] items = new String[convs.size()];
+        for (int i = 0; i < convs.size(); i++) {
+            items[i] = convs.get(i)[1];
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("会话")
+                .setItems(items, (d, which) -> {
+                    String[] c = convs.get(which);
+                    currentConvId = Long.parseLong(c[0]);
+                    loadHistory(currentConvId);
+                })
+                .setNeutralButton("新建", (d, w) -> {
+                    currentConvId = store.newConversation();
+                    loadHistory(currentConvId);
+                })
+                .setNegativeButton("删除当前", (d, w) -> {
+                    store.deleteConversation(currentConvId);
+                    currentConvId = store.getLatestConversationId();
+                    if (currentConvId == -1) currentConvId = store.newConversation();
+                    loadHistory(currentConvId);
+                })
+                .show();
     }
 
     private void showSettings() {
