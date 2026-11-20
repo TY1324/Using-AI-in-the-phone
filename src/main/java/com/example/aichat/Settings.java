@@ -25,8 +25,6 @@ public class Settings {
         sp.edit().putString(key, value).apply();
     }
 
-    // ===== 全局默认配置 =====
-
     public String globalType() { return get("g_type", "OPENAI").toUpperCase(); }
     public String globalHost() { return get("g_host", "https://api.deepseek.com"); }
     public String globalKey() { return get("g_key", ""); }
@@ -42,18 +40,29 @@ public class Settings {
     }
 
     // ===== 模型预设 =====
+    // 字段顺序: name, type, host, key, model, maxTokens, temperature, skill, note
 
-    public void savePreset(String name, String type, String host, String key, String model) {
+    public void savePreset(String name, String type, String host, String key, String model,
+                           String maxTokens, String temperature, String skill, String note) {
         try {
             JSONArray arr = getPresetsArray();
+            JSONArray out = new JSONArray();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.getJSONObject(i);
+                if (!o.optString("name", "").equals(name)) out.put(o);
+            }
             JSONObject o = new JSONObject();
             o.put("name", name);
             o.put("type", type);
             o.put("host", host);
             o.put("key", key);
             o.put("model", model);
-            arr.put(o);
-            sp.edit().putString("presets", arr.toString()).apply();
+            o.put("maxTokens", maxTokens);
+            o.put("temperature", temperature);
+            o.put("skill", skill);
+            o.put("note", note);
+            out.put(o);
+            sp.edit().putString("presets", out.toString()).apply();
         } catch (Exception ignored) {
         }
     }
@@ -69,7 +78,11 @@ public class Settings {
                         o.optString("type", "OPENAI"),
                         o.optString("host", ""),
                         o.optString("key", ""),
-                        o.optString("model", "")
+                        o.optString("model", ""),
+                        o.optString("maxTokens", "4096"),
+                        o.optString("temperature", ""),
+                        o.optString("skill", ""),
+                        o.optString("note", "")
                 });
             }
         } catch (Exception ignored) {
