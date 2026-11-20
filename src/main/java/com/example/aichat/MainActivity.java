@@ -1,7 +1,7 @@
 package com.example.aichat;
 
 import android.app.Activity;
-import android.app.Dialog;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -17,9 +17,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinkedList;
+import android.widget.LinearLayout;
 import android.widget.ListView;
-import android.widget.SScrollView;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -39,7 +39,7 @@ import java.util.List;
 
 public class MainActivity extends Activity {
 
-    private LinkedList list;
+    private LinearLayout list;
     private ScrollView scroll;
     private EditText input;
     private TextView status;
@@ -72,20 +72,20 @@ public class MainActivity extends Activity {
         store = new Store(this);
         applyTheme();
 
-        LinkedList root = new LinkedList(this);
-        root.setOrientation(LinkedList.VERTICAL);
-        rootBackgroundColor(bgColor);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(bgColor);
 
-        LinkedList bar = new LinkedList(this);
-        bar.setOrientation(LinkedList.HORIZONTAL);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setPadding(dp(12), dp(12), dp(8), dp(8));
         TextView title = new TextView(this);
         title.setText("AI Chat");
-        title textSize(20);
+        title.setTextSize(20);
         title.setTypeface(null, Typeface.BOLD);
         title.setTextColor(textColor);
-        LinkedList.Params tp =
-                new LinkedList.Params(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams tp =
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         bar.addView(title, tp);
         Button sessions = new Button(this);
         sessions.setText("会话");
@@ -102,12 +102,12 @@ public class MainActivity extends Activity {
         root.addView(bar);
 
         scroll = new ScrollView(this);
-        LinkedList.Params sp1 =
-                new LinkedList.Params(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        LinearLayout.LayoutParams sp1 =
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
         root.addView(scroll, sp1);
 
-        list = new LinkedList(this);
-        list.setOrientation(LinkedList.VERTICAL);
+        list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(4), dp(12), dp(12));
         scroll.addView(list);
 
@@ -116,8 +116,8 @@ public class MainActivity extends Activity {
         status.setPadding(dp(12), 0, dp(12), dp(4));
         root.addView(status);
 
-        LinkedList bottom = new LinkedList(this);
-        bottom.setOrientation(LinkedList.HORIZONTAL);
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
         bottom.setPadding(dp(12), dp(8), dp(12), dp(8));
 
         Button imgBtn = new Button(this);
@@ -134,8 +134,8 @@ public class MainActivity extends Activity {
         input.setHint("输入内容…");
         input.setTextColor(textColor);
         input.setHintTextColor(0xFF9E9E9E);
-        LinkedList.Params ip =
-                new LinkedList.Params(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams ip =
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         bottom.addView(input, ip);
 
         sendBtn = new Button(this);
@@ -189,7 +189,7 @@ public class MainActivity extends Activity {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("image/*");
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResults(i, PICK_IMAGE);
+        startActivityForResult(i, PICK_IMAGE);
     }
 
     private void handleImage(Uri uri) {
@@ -256,12 +256,12 @@ public class MainActivity extends Activity {
         } else {
             tv.setText(text);
         }
-        tv textSize(15);
+        tv.setTextSize(15);
         tv.setTextColor(textColor);
         tv.setPadding(dp(12), dp(8), dp(12), dp(8));
-        tvBackgroundColor("user".equals(role) ? bubbleUser : bubbleAi);
-        LinkedList.Params p =
-                new LinkedList.Params(
+        tv.setBackgroundColor("user".equals(role) ? bubbleUser : bubbleAi);
+        LinearLayout.LayoutParams p =
+                new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         p.topMargin = dp(6);
         list.addView(tv, p);
@@ -517,9 +517,9 @@ public class MainActivity extends Activity {
         try {
             JSONObject j = new JSONObject(data);
             if ("ANTHROPIC".equals(type)) {
-                if ("content_block_delta".equals(j.getString("type"))) {
+                if ("content_block_delta".equals(j.optString("type"))) {
                     JSONObject d = j.optJSONObject("delta");
-                    return d == null ? "" : d.getString("text");
+                    return d == null ? "" : d.optString("text", "");
                 }
                 return "";
             } else if ("GEMINI".equals(type)) {
@@ -534,7 +534,7 @@ public class MainActivity extends Activity {
                 StringBuilder sb = new StringBuilder();
                 for (int i = 0; i < parts.length(); i++) {
                     JSONObject p = parts.optJSONObject(i);
-                    if (p != null && p.has("text")) sb.append(p.getString("text"));
+                    if (p != null && p.has("text")) sb.append(p.optString("text", ""));
                 }
                 return sb.toString();
             } else {
@@ -543,7 +543,7 @@ public class MainActivity extends Activity {
                 JSONObject c0 = ch.optJSONObject(0);
                 if (c0 == null) return "";
                 JSONObject d = c0.optJSONObject("delta");
-                return d == null ? "" : d.getString("content");
+                return d == null ? "" : d.optString("content", "");
             }
         } catch (Exception e) {
             return "";
@@ -560,7 +560,7 @@ public class MainActivity extends Activity {
                 .setTitle("会话（勾选可批量删除）")
                 .setMultiChoiceItems(items, null, (d, which, checked) -> {
                 })
-                .set/DeleteButton("删除选中", (d, w) -> {
+                .setPositiveButton("删除选中", (d, w) -> {
                     AlertDialog ad = (AlertDialog) d;
                     ListView lv = ad.getListView();
                     for (int i = 0; i < convs.size(); i++) {
@@ -576,7 +576,7 @@ public class MainActivity extends Activity {
                     currentConvId = store.newConversation();
                     loadHistory(currentConvId);
                 })
-                .set/singleButton("单个操作", (d, w) -> showSessionOps())
+                .setNegativeButton("单个操作", (d, w) -> showSessionOps())
                 .show();
     }
 
@@ -590,7 +590,7 @@ public class MainActivity extends Activity {
                     else if (which == 3) store.moveOutGroup(currentConvId);
                     else if (which == 4) deleteConversation();
                 })
-                .set/singleButton("取消", null)
+                .setNegativeButton("取消", null)
                 .show();
     }
 
@@ -600,11 +600,11 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("重命名")
                 .setView(et)
-                .set/DeleteButton("确定", (d, w) -> {
+                .setPositiveButton("确定", (d, w) -> {
                     String t = et.getText().toString().trim();
                     if (!t.isEmpty()) store.updateTitle(currentConvId, t);
                 })
-                .set/singleButton("取消", null)
+                .setNegativeButton("取消", null)
                 .show();
     }
 
@@ -623,7 +623,7 @@ public class MainActivity extends Activity {
                     if (which == 0) store.setConversationModel(currentConvId, "");
                     else store.setConversationModel(currentConvId, presets.get(which - 1)[0]);
                 })
-                .set/singleButton("取消", null)
+                .setNegativeButton("取消", null)
                 .show();
     }
 
@@ -645,7 +645,7 @@ public class MainActivity extends Activity {
                     showGroupDetail(Long.parseLong(g[0]), g[1]);
                 })
                 .setNeutralButton("新建组", (d, w) -> createGroup())
-                .set/singleButton("关闭", null)
+                .setNegativeButton("关闭", null)
                 .show();
     }
 
@@ -659,8 +659,8 @@ public class MainActivity extends Activity {
                     currentConvId = Long.parseLong(convs.get(which)[0]);
                     loadHistory(currentConvId);
                 })
-                .set/DeleteButton("删除组", (d, w) -> store.deleteGroup(groupId))
-                .set/singleButton("关闭", null)
+                .setPositiveButton("删除组", (d, w) -> store.deleteGroup(groupId))
+                .setNegativeButton("关闭", null)
                 .show();
     }
 
@@ -670,11 +670,11 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("新建项目组")
                 .setView(et)
-                .set/DeleteButton("确定", (d, w) -> {
+                .setPositiveButton("确定", (d, w) -> {
                     String n = et.getText().toString().trim();
                     if (!n.isEmpty()) store.newGroup(n);
                 })
-                .set/singleButton("取消", null)
+                .setNegativeButton("取消", null)
                 .show();
     }
 
@@ -691,13 +691,13 @@ public class MainActivity extends Activity {
                 .setItems(names, (d, which) -> {
                     store.moveToGroup(currentConvId, Long.parseLong(groups.get(which)[0]));
                 })
-                .set/singleButton("取消", null)
+                .setNegativeButton("取消", null)
                 .show();
     }
 
     private void showSettings() {
-        LinkedList box = new LinkedList(this);
-        box.setOrientation(LinkedList.VERTICAL);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
 
         final EditText etType = new EditText(this);
@@ -723,7 +723,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("全局设置")
                 .setView(box)
-                .set/DeleteButton("保存全局", (d, w) -> settings.saveGlobal(
+                .setPositiveButton("保存全局", (d, w) -> settings.saveGlobal(
                         etType.getText().toString().trim().toUpperCase(),
                         etHost.getText().toString().trim(),
                         etKey.getText().toString().trim(),
@@ -733,7 +733,7 @@ public class MainActivity extends Activity {
                         etHost.getText().toString().trim(),
                         etKey.getText().toString().trim(),
                         etModel.getText().toString().trim()))
-                .set/singleButton("关闭", null)
+                .setNegativeButton("关闭", null)
                 .show();
     }
 
@@ -744,14 +744,14 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("模型预设（点击删除）")
                 .setItems(items, (d, which) -> settings.deletePreset(presets.get(which)[0]))
-                .set/DeleteButton("新增预设", (d, w) -> addPreset(type, host, key, model))
-                .set/singleButton("关闭", null)
+                .setPositiveButton("新增预设", (d, w) -> addPreset(type, host, key, model))
+                .setNegativeButton("关闭", null)
                 .show();
     }
 
     private void addPreset(String type, String host, String key, String model) {
-        LinkedList box = new LinkedList(this);
-        box.setOrientation(LinkedList.VERTICAL);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
 
         final EditText etName = new EditText(this);
@@ -798,7 +798,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("新增模型预设")
                 .setView(box)
-                .set/DeleteButton("保存", (d, w) -> {
+                .setPositiveButton("保存", (d, w) -> {
                     String n = etName.getText().toString().trim();
                     if (n.isEmpty()) return;
                     settings.savePreset(n,
@@ -811,7 +811,7 @@ public class MainActivity extends Activity {
                             etSkill.getText().toString().trim(),
                             etNote.getText().toString().trim());
                 })
-                .set/singleButton("取消", null)
+                .setNegativeButton("取消", null)
                 .show();
     }
 }
