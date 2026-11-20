@@ -3,7 +3,6 @@ package com.example.aichat;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -40,7 +39,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String[]> history = new ArrayList<>();
-    private SharedPreferences sp;
+    private Settings settings;
     private Store store;
     private long currentConvId = -1;
     private boolean busy = false;
@@ -58,7 +57,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        sp = getSharedPreferences("chat", Context.MODE_PRIVATE);
+        settings = new Settings(this);
         store = new Store(this);
         applyTheme();
 
@@ -80,10 +79,14 @@ public class MainActivity extends Activity {
         sessions.setText("会话");
         sessions.setOnClickListener(v -> showSessions());
         bar.addView(sessions);
-        Button settings = new Button(this);
-        settings.setText("设置");
-        settings.setOnClickListener(v -> showSettings());
-        bar.addView(settings);
+        Button groups = new Button(this);
+        groups.setText("组");
+        groups.setOnClickListener(v -> showGroups());
+        bar.addView(groups);
+        Button settingsBtn = new Button(this);
+        settingsBtn.setText("设置");
+        settingsBtn.setOnClickListener(v -> showSettings());
+        bar.addView(settingsBtn);
         root.addView(bar);
 
         scroll = new ScrollView(this);
@@ -198,7 +201,7 @@ public class MainActivity extends Activity {
         history.add(new String[]{"user", text});
         store.saveMessage(currentConvId, "user", text);
 
-        if (store.loadMessages(currentConvId).size() == 1) {
+        if (store.countMessages(currentConvId) == 1) {
             String t = text.length() > 20 ? text.substring(0, 20) : text;
             store.updateTitle(currentConvId, t);
         }
@@ -257,14 +260,31 @@ public class MainActivity extends Activity {
     }
 
     private String cfg(String key, String def) {
-        return sp.getString(key, def);
+        return settings.get(key, def);
+    }
+
+    private String[] resolveConfig() {
+        String convModel = store.getConversationModel(currentConvId);
+        if (convModel != null && !convModel.isEmpty()) {
+            String[] p = settings.getPreset(convModel);
+            if (p != null) {
+                return new String[]{p[1], p[2], p[3], p[4]};
+            }
+        }
+        return new String[]{
+                settings.globalType(),
+                settings.globalHost(),
+                settings.globalKey(),
+                settings.globalModel()
+        };
     }
 
     private void stream(StringBuilder acc, TextView reply) throws Exception {
-        String type = cfg("type", "OPENAI").toUpperCase();
-        String host = cfg("host", "https://api.deepseek.com").trim();
-        String key = cfg("key", "");
-        String model = cfg("model", "deepseek-chat");
+        String[] conf = resolveConfig();
+        String type = conf[0].toUpperCase();
+        String host = conf[1].trim();
+        String key = conf[2];
+        String model = conf[3];
         while (host.endsWith("/")) host = host.substring(0, host.length() - 1);
 
         JSONArray msgs = new JSONArray();
@@ -406,12 +426,122 @@ public class MainActivity extends Activity {
                     currentConvId = store.newConversation();
                     loadHistory(currentConvId);
                 })
-                .setNegativeButton("删除当前", (d, w) -> {
-                    store.deleteConversation(currentConvId);
-                    currentConvId = store.getLatestConversationId();
-                    if (currentConvId == -1) currentConvId = store.newConversation();
+                .setNegativeButton("更多", (d, w) -> showSessionOps())
+                .show();
+    }
+
+    private void showSessionOps() {
+        new AlertDialog.Builder(this)
+                .setTitle("会话操作")
+                .setItems(new String[]{"重命名", "设为模型", "移入项目组", "移出项目组", "删除"}, (d, which) -> {
+                    if (which == 0) renameConversation();
+                    else if (which == 1) setConversationModel();
+                    else if (which == 2) moveToGroup();
+                    else if (which == 3) store.moveOutGroup(currentConvId);
+                    else if (which == 4) deleteConversation();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void renameConversation() {
+        final EditText et = new EditText(this);
+        et.setText(store.getConversationTitle(currentConvId));
+        new AlertDialog.Builder(this)
+                .setTitle("重命名")
+                .setView(et)
+                .setPositiveButton("确定", (d, w) -> {
+                    String t = et.getText().toString().trim();
+                    if (!t.isEmpty()) store.updateTitle(currentConvId, t);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void setConversationModel() {
+        List<String[]> presets = settings.listPresets();
+        if (presets.isEmpty()) {
+            status.setText("请先在设置里添加模型预设");
+            return;
+        }
+        String[] names = new String[presets.size() + 1];
+        names[0] = "跟随全局";
+        for (int i = 0; i < presets.size(); i++) names[i + 1] = presets.get(i)[0];
+        new AlertDialog.Builder(this)
+                .setTitle("选择模型")
+                .setItems(names, (d, which) -> {
+                    if (which == 0) store.setConversationModel(currentConvId, "");
+                    else store.setConversationModel(currentConvId, presets.get(which - 1)[0]);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void deleteConversation() {
+        store.deleteConversation(currentConvId);
+        currentConvId = store.getLatestConversationId();
+        if (currentConvId == -1) currentConvId = store.newConversation();
+        loadHistory(currentConvId);
+    }
+
+    private void showGroups() {
+        List<String[]> groups = store.listGroups();
+        String[] items = new String[groups.size()];
+        for (int i = 0; i < groups.size(); i++) items[i] = groups.get(i)[1];
+        new AlertDialog.Builder(this)
+                .setTitle("项目组")
+                .setItems(items, (d, which) -> {
+                    String[] g = groups.get(which);
+                    showGroupDetail(Long.parseLong(g[0]), g[1]);
+                })
+                .setNeutralButton("新建组", (d, w) -> createGroup())
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void showGroupDetail(long groupId, String name) {
+        List<String[]> convs = store.listConversationsInGroup(groupId);
+        String[] items = new String[convs.size()];
+        for (int i = 0; i < convs.size(); i++) items[i] = convs.get(i)[1];
+        new AlertDialog.Builder(this)
+                .setTitle(name)
+                .setItems(items, (d, which) -> {
+                    currentConvId = Long.parseLong(convs.get(which)[0]);
                     loadHistory(currentConvId);
                 })
+                .setPositiveButton("删除组", (d, w) -> store.deleteGroup(groupId))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void createGroup() {
+        final EditText et = new EditText(this);
+        et.setHint("项目组名称");
+        new AlertDialog.Builder(this)
+                .setTitle("新建项目组")
+                .setView(et)
+                .setPositiveButton("确定", (d, w) -> {
+                    String n = et.getText().toString().trim();
+                    if (!n.isEmpty()) store.newGroup(n);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void moveToGroup() {
+        List<String[]> groups = store.listGroups();
+        if (groups.isEmpty()) {
+            status.setText("请先创建项目组");
+            return;
+        }
+        String[] names = new String[groups.size()];
+        for (int i = 0; i < groups.size(); i++) names[i] = groups.get(i)[1];
+        new AlertDialog.Builder(this)
+                .setTitle("移入项目组")
+                .setItems(names, (d, which) -> {
+                    store.moveToGroup(currentConvId, Long.parseLong(groups.get(which)[0]));
+                })
+                .setNegativeButton("取消", null)
                 .show();
     }
 
@@ -422,33 +552,97 @@ public class MainActivity extends Activity {
 
         final EditText etType = new EditText(this);
         etType.setHint("OPENAI / ANTHROPIC / GEMINI");
-        etType.setText(cfg("type", "OPENAI"));
+        etType.setText(settings.globalType());
         box.addView(etType);
 
         final EditText etHost = new EditText(this);
-        etHost.setHint("https://api.deepseek.com");
-        etHost.setText(cfg("host", "https://api.deepseek.com"));
+        etHost.setHint("API 地址");
+        etHost.setText(settings.globalHost());
         box.addView(etHost);
 
         final EditText etKey = new EditText(this);
         etKey.setHint("API Key");
-        etKey.setText(cfg("key", ""));
+        etKey.setText(settings.globalKey());
         box.addView(etKey);
 
         final EditText etModel = new EditText(this);
-        etModel.setHint("模型 ID，如 deepseek-chat");
-        etModel.setText(cfg("model", "deepseek-chat"));
+        etModel.setHint("模型 ID");
+        etModel.setText(settings.globalModel());
         box.addView(etModel);
 
         new AlertDialog.Builder(this)
-                .setTitle("设置")
+                .setTitle("全局设置 / 模型预设")
                 .setView(box)
-                .setPositiveButton("保存", (d, w) -> sp.edit()
-                        .putString("type", etType.getText().toString().trim().toUpperCase())
-                        .putString("host", etHost.getText().toString().trim())
-                        .putString("key", etKey.getText().toString().trim())
-                        .putString("model", etModel.getText().toString().trim())
-                        .apply())
+                .setPositiveButton("保存全局", (d, w) -> settings.saveGlobal(
+                        etType.getText().toString().trim().toUpperCase(),
+                        etHost.getText().toString().trim(),
+                        etKey.getText().toString().trim(),
+                        etModel.getText().toString().trim()))
+                .setNeutralButton("管理预设", (d, w) -> showPresets(
+                        etType.getText().toString().trim().toUpperCase(),
+                        etHost.getText().toString().trim(),
+                        etKey.getText().toString().trim(),
+                        etModel.getText().toString().trim()))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void showPresets(String type, String host, String key, String model) {
+        List<String[]> presets = settings.listPresets();
+        String[] items = new String[presets.size()];
+        for (int i = 0; i < presets.size(); i++) items[i] = presets.get(i)[0];
+        new AlertDialog.Builder(this)
+                .setTitle("模型预设")
+                .setItems(items, (d, which) -> {
+                    String[] p = presets.get(which);
+                    settings.deletePreset(p[0]);
+                })
+                .setPositiveButton("新增预设", (d, w) -> addPreset(type, host, key, model))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void addPreset(String type, String host, String key, String model) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), dp(8));
+
+        final EditText etName = new EditText(this);
+        etName.setHint("预设名称，如：Claude");
+        box.addView(etName);
+
+        final EditText etType = new EditText(this);
+        etType.setHint("协议");
+        etType.setText(type);
+        box.addView(etType);
+
+        final EditText etHost = new EditText(this);
+        etHost.setHint("API 地址");
+        etHost.setText(host);
+        box.addView(etHost);
+
+        final EditText etKey = new EditText(this);
+        etKey.setHint("API Key");
+        etKey.setText(key);
+        box.addView(etKey);
+
+        final EditText etModel = new EditText(this);
+        etModel.setHint("模型 ID");
+        etModel.setText(model);
+        box.addView(etModel);
+
+        new AlertDialog.Builder(this)
+                .setTitle("新增模型预设")
+                .setView(box)
+                .setPositiveButton("保存", (d, w) -> {
+                    String n = etName.getText().toString().trim();
+                    if (n.isEmpty()) return;
+                    settings.savePreset(n,
+                            etType.getText().toString().trim().toUpperCase(),
+                            etHost.getText().toString().trim(),
+                            etKey.getText().toString().trim(),
+                            etModel.getText().toString().trim());
+                })
                 .setNegativeButton("取消", null)
                 .show();
     }
