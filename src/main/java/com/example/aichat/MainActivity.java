@@ -259,23 +259,22 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String cfg(String key, String def) {
-        return settings.get(key, def);
-    }
-
     private String[] resolveConfig() {
         String convModel = store.getConversationModel(currentConvId);
         if (convModel != null && !convModel.isEmpty()) {
             String[] p = settings.getPreset(convModel);
             if (p != null) {
-                return new String[]{p[1], p[2], p[3], p[4]};
+                return new String[]{p[1], p[2], p[3], p[4], p[5], p[6], p[7]};
             }
         }
         return new String[]{
                 settings.globalType(),
                 settings.globalHost(),
                 settings.globalKey(),
-                settings.globalModel()
+                settings.globalModel(),
+                "4096",
+                "",
+                ""
         };
     }
 
@@ -285,9 +284,18 @@ public class MainActivity extends Activity {
         String host = conf[1].trim();
         String key = conf[2];
         String model = conf[3];
+        String maxTokens = conf[4];
+        String temperature = conf[5];
+        String skill = conf[6];
         while (host.endsWith("/")) host = host.substring(0, host.length() - 1);
 
         JSONArray msgs = new JSONArray();
+        if (skill != null && !skill.trim().isEmpty()) {
+            JSONObject sys = new JSONObject();
+            sys.put("role", "system");
+            sys.put("content", "请遵循以下 Skill：\n" + skill);
+            msgs.put(sys);
+        }
         for (String[] m : history) {
             if (m[1] == null || m[1].trim().isEmpty()) continue;
             JSONObject o = new JSONObject();
@@ -308,7 +316,9 @@ public class MainActivity extends Activity {
         HttpURLConnection c;
         if ("ANTHROPIC".equals(type)) {
             url = host + "/v1/messages";
-            body.put("model", model).put("max_tokens", 4096).put("stream", true).put("messages", msgs);
+            body.put("model", model).put("max_tokens", parseInt(maxTokens, 4096))
+                    .put("stream", true).put("messages", msgs);
+            if (!temperature.isEmpty()) body.put("temperature", Double.parseDouble(temperature));
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setRequestProperty("x-api-key", key);
             c.setRequestProperty("anthropic-version", "2023-06-01");
@@ -316,11 +326,18 @@ public class MainActivity extends Activity {
             url = host + "/v1beta/models/" + URLEncoder.encode(model, "UTF-8")
                     + ":streamGenerateContent?alt=sse";
             body.put("contents", msgs);
+            if (!temperature.isEmpty()) {
+                JSONObject gen = new JSONObject();
+                gen.put("temperature", Double.parseDouble(temperature));
+                body.put("generationConfig", gen);
+            }
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setRequestProperty("x-goog-api-key", key);
         } else {
             url = host + "/v1/chat/completions";
             body.put("model", model).put("stream", true).put("messages", msgs);
+            body.put("max_tokens", parseInt(maxTokens, 4096));
+            if (!temperature.isEmpty()) body.put("temperature", Double.parseDouble(temperature));
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setRequestProperty("Authorization", "Bearer " + key);
         }
@@ -372,6 +389,14 @@ public class MainActivity extends Activity {
         currentConn = null;
     }
 
+    private int parseInt(String s, int def) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
     private String extractDelta(String type, String data) {
         try {
             JSONObject j = new JSONObject(data);
@@ -416,17 +441,26 @@ public class MainActivity extends Activity {
             items[i] = convs.get(i)[1];
         }
         new AlertDialog.Builder(this)
-                .setTitle("会话")
-                .setItems(items, (d, which) -> {
-                    String[] c = convs.get(which);
-                    currentConvId = Long.parseLong(c[0]);
+                .setTitle("会话（多选批量删除）")
+                .setMultiChoiceItems(items, null, (d, which, checked) -> {
+                })
+                .setPositiveButton("删除选中", (d, w) -> {
+                    AlertDialog ad = (AlertDialog) d;
+                    android.widget.ListView lv = ad.getListView();
+                    for (int i = 0; i < convs.size(); i++) {
+                        if (lv.isItemChecked(i)) {
+                            store.deleteConversation(Long.parseLong(convs.get(i)[0]));
+                        }
+                    }
+                    currentConvId = store.getLatestConversationId();
+                    if (currentConvId == -1) currentConvId = store.newConversation();
                     loadHistory(currentConvId);
                 })
                 .setNeutralButton("新建", (d, w) -> {
                     currentConvId = store.newConversation();
                     loadHistory(currentConvId);
                 })
-                .setNegativeButton("更多", (d, w) -> showSessionOps())
+                .setNegativeButton("单个操作", (d, w) -> showSessionOps())
                 .show();
     }
 
@@ -571,7 +605,7 @@ public class MainActivity extends Activity {
         box.addView(etModel);
 
         new AlertDialog.Builder(this)
-                .setTitle("全局设置 / 模型预设")
+                .setTitle("全局设置")
                 .setView(box)
                 .setPositiveButton("保存全局", (d, w) -> settings.saveGlobal(
                         etType.getText().toString().trim().toUpperCase(),
@@ -631,6 +665,23 @@ public class MainActivity extends Activity {
         etModel.setText(model);
         box.addView(etModel);
 
+        final EditText etMax = new EditText(this);
+        etMax.setHint("maxTokens（如 4096）");
+        etMax.setText("4096");
+        box.addView(etMax);
+
+        final EditText etTemp = new EditText(this);
+        etTemp.setHint("temperature（留空默认）");
+        box.addView(etTemp);
+
+        final EditText etSkill = new EditText(this);
+        etSkill.setHint("Skill（可选，支持多行）");
+        box.addView(etSkill);
+
+        final EditText etNote = new EditText(this);
+        etNote.setHint("备注（如：支持视觉、推理）");
+        box.addView(etNote);
+
         new AlertDialog.Builder(this)
                 .setTitle("新增模型预设")
                 .setView(box)
@@ -641,7 +692,11 @@ public class MainActivity extends Activity {
                             etType.getText().toString().trim().toUpperCase(),
                             etHost.getText().toString().trim(),
                             etKey.getText().toString().trim(),
-                            etModel.getText().toString().trim());
+                            etModel.getText().toString().trim(),
+                            etMax.getText().toString().trim(),
+                            etTemp.getText().toString().trim(),
+                            etSkill.getText().toString().trim(),
+                            etNote.getText().toString().trim());
                 })
                 .setNegativeButton("取消", null)
                 .show();
