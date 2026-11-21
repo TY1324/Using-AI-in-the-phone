@@ -3,30 +3,32 @@ package com.example.aichat;
 import android.content.Context;
 import android.net.Uri;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserFactory;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.RandomAccessFile;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
-/**
- * 大文件处理器：支持 600MB+ 文件的分片读取、文本提取、分块索引
- * 仅使用标准 Java/Android API，无第三方依赖
- */
 public class LargeFileHandler {
 
-    public static final int DEFAULT_CHUNK_SIZE = 1024 * 1024; // 1MB 文本分块
-    public static final int MAX_FILE_SIZE = 600 * 1024 * 1024; // 600MB
+    public static final int DEFAULT_CHUNK_SIZE = 1024 * 1024;
+    public static final int MAX_FILE_SIZE = 600 * 1024 * 1024;
 
     public static class Chunk {
         public int index;
         public long startOffset;
         public int length;
         public String text;
-        public String summary; // 可选：块摘要
+        public String summary;
     }
 
     public static class ParseResult {
@@ -34,21 +36,15 @@ public class LargeFileHandler {
         public long fileSize;
         public String mimeType;
         public List<Chunk> chunks = new ArrayList<>();
-        public String fullText; // 小文件时完整文本
+        public String fullText;
         public int totalChunks;
         public String error;
     }
 
-    /**
-     * 判断是否为大文件（需分块处理）
-     */
     public static boolean isLargeFile(long size) {
-        return size > 1024 * 1024; // >1MB 走分块
+        return size > 1024 * 1024;
     }
 
-    /**
-     * 主入口：解析文件（自动决定是否分块）
-     */
     public static ParseResult parse(Context ctx, Uri uri, String fileName, long fileSize) {
         ParseResult result = new ParseResult();
         result.fileName = fileName;
@@ -63,145 +59,130 @@ public class LargeFileHandler {
             String mime = ctx.getContentResolver().getType(uri);
             result.mimeType = mime;
 
-            if (isLargeFile(fileSize)) {
-                parseLarge(ctx, uri, result);
+            String ext = getExtension(fileName).toLowerCase();
+            String path = uri.toString();
+
+            if (isTextBased(ext)) {
+                parseLargeText(ctx, path, result);
+            } else if ("pdf".equals(ext)) {
+                parsePdf(ctx, path, result);
+            } else if ("docx".equals(ext)) {
+                parseDocx(ctx, path, result);
+            } else if ("xlsx".equals(ext)) {
+                parseXlsx(ctx, path, result);
             } else {
-                parseSmall(ctx, uri, result);
+                String text = readAllText(ctx, path);
+                result.fullText = text;
+                result.chunks = chunkText(text, 0);
             }
+            result.totalChunks = result.chunks.size();
         } catch (Exception e) {
             result.error = "解析失败：" + e.getMessage();
         }
         return result;
     }
 
-    // 小文件：一次性读完
-    private static void parseSmall(Context ctx, Uri uri, ParseResult result) throws Exception {
-        String text = readAllText(ctx, uri);
-        result.fullText = text;
-        result.chunks = chunkText(text, 0);
-        result.totalChunks = result.chunks.size();
-    }
+    // ========== 各类解析（自实现，不依赖 FileParser） ==========
 
-    // 大文件：分片读取 + 流式分块
-    private static void parseLarge(Context ctx, Uri uri, ParseResult result) throws Exception {
-        String ext = getExtension(result.fileName).toLowerCase();
-
-        if (isTextBased(ext)) {
-            parseLargeText(ctx, uri, result);
-        } else if ("pdf".equals(ext)) {
-            parseLargePdf(ctx, uri, result);
-        } else if ("docx".equals(ext)) {
-            parseLargeDocx(ctx, uri, result);
-        } else {
-            // 其它二进制：尝试提取文本
-            String text = readAllText(ctx, uri);
-            result.fullText = text;
-            result.chunks = chunkText(text, 0);
-        }
-        result.totalChunks = result.chunks.size();
-    }
-
-    // 大文本文件：按行/定长分块
-    private static void parseLargeText(Context ctx, Uri uri, ParseResult result) throws Exception {
-        InputStream in = ctx.getContentResolver().openInputStream(uri);
+    private static void parseLargeText(Context ctx, String path, ParseResult result) throws Exception {
+        InputStream in = openStream(ctx, path);
         if (in == null) return;
 
-        byte[] buffer = new byte[8192];
-        StringBuilder sb = new StringBuilder();
-        int chunkIndex = 0;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
         int read;
-        List<Chunk> chunks = new ArrayList<>();
-
-        while ((read = in.read(buffer)) != -1) {
-            // 尝试 UTF-8 解码
-            String part = new String(buffer, 0, read, StandardCharsets.UTF_8);
-            sb.append(part);
-
-            // 累积到 1MB 切一块
-            if (sb.length() >= DEFAULT_CHUNK_SIZE) {
-                Chunk c = new Chunk();
-                c.index = chunkIndex++;
-                c.startOffset = (long) c.index * DEFAULT_CHUNK_SIZE;
-                c.length = sb.length();
-                c.text = sb.toString();
-                c.summary = summarize(c.text);
-                chunks.add(c);
-                sb.setLength(0); // 清空
-            }
+        while ((read = in.read(buf)) != -1) {
+            baos.write(buf, 0, read);
         }
         in.close();
+        byte[] bytes = baos.toByteArray();
 
-        // 尾部
-        if (sb.length() > 0) {
-            Chunk c = new Chunk();
-            c.index = chunkIndex;
-            c.startOffset = (long) c.index * DEFAULT_CHUNK_SIZE;
-            c.length = sb.length();
-            c.text = sb.toString();
-            c.summary = summarize(c.text);
-            chunks.add(c);
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        if (isGarbled(text)) {
+            text = new String(bytes, Charset.forName("GB18030"));
+        }
+        if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
+            text = text.substring(1);
         }
 
-        result.chunks = chunks;
-    }
-
-    // 大 PDF：分页提取（简化版，实际需用 PDFBox）
-    private static void parseLargePdf(Context ctx, Uri uri, ParseResult result) throws Exception {
-        // 复用 FileParser 的 PDF 解析
-        String text = FileParser.parsePdfLite(ctx, uri.toString());
         result.fullText = text;
         result.chunks = chunkText(text, 0);
     }
 
-    // 大 DOCX：解压读取 word/document.xml
-    private static void parseLargeDocx(Context ctx, Uri uri, ParseResult result) throws Exception {
-        String text = FileParser.parseDocx(ctx, uri.toString());
-        result.fullText = text;
-        result.chunks = chunkText(text, 0);
+    private static void parseDocx(Context ctx, String path, ParseResult result) throws Exception {
+        InputStream in = openStream(ctx, path);
+        if (in == null) return;
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            if ("word/document.xml".equals(entry.getName())) {
+                text.append(extractXmlText(zis));
+            }
+        }
+        zis.close();
+        result.fullText = text.toString();
+        result.chunks = chunkText(text.toString(), 0);
     }
 
-    // ========== 工具方法 ==========
+    private static void parseXlsx(Context ctx, String path, ParseResult result) throws Exception {
+        InputStream in = openStream(ctx, path);
+        if (in == null) return;
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            String n = entry.getName();
+            if (n.startsWith("xl/sharedStrings.xml") || n.matches("xl/worksheets/sheet\\d+\\.xml")) {
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        result.fullText = text.toString();
+        result.chunks = chunkText(text.toString(), 0);
+    }
 
-    private static String readAllText(Context ctx, Uri uri) throws Exception {
-        InputStream in = ctx.getContentResolver().openInputStream(uri);
-        if (in == null) return "";
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+    private static void parsePdf(Context ctx, String path, ParseResult result) throws Exception {
+        InputStream in = openStream(ctx, path);
+        if (in == null) return;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;
         while ((n = in.read(buf)) != -1) baos.write(buf, 0, n);
         in.close();
         byte[] bytes = baos.toByteArray();
 
-        // 编码自动检测
-        String text = new String(bytes, StandardCharsets.UTF_8);
-        int bad = 0;
-        for (int i = 0; i < text.length(); i++) if (text.charAt(i) == '\uFFFD') bad++;
-        if (bad > text.length() / 50) {
-            try {
-                in = ctx.getContentResolver().openInputStream(uri);
-                text = readStream(in, java.nio.charset.Charset.forName("GBK"));
-            } catch (Exception ignored) {}
-        }
-        return text;
-    }
-
-    private static String readStream(InputStream in, java.nio.charset.Charset cs) throws Exception {
-        java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(in, cs));
+        String raw = new String(bytes, StandardCharsets.ISO_8859_1);
         StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = br.readLine()) != null) sb.append(line).append('\n');
-        br.close();
-        return sb.toString();
+        int idx = 0;
+        while ((idx = raw.indexOf("BT", idx)) != -1) {
+            int end = raw.indexOf("ET", idx);
+            if (end == -1) break;
+            String block = raw.substring(idx, end);
+            java.util.regex.Pattern p1 = java.util.regex.Pattern.compile("\\((.*?)\\)\\s*Tj");
+            java.util.regex.Matcher m1 = p1.matcher(block);
+            while (m1.find()) sb.append(m1.group(1));
+            java.util.regex.Pattern p2 = java.util.regex.Pattern.compile("\\[(.*?)\\]\\s*TJ");
+            java.util.regex.Matcher m2 = p2.matcher(block);
+            while (m2.find()) {
+                java.util.regex.Pattern p3 = java.util.regex.Pattern.compile("\\((.*?)\\)");
+                java.util.regex.Matcher m3 = p3.matcher(m2.group(1));
+                while (m3.find()) sb.append(m3.group(1));
+            }
+            idx = end + 2;
+        }
+        String text = sb.toString().trim();
+        if (text.isEmpty()) text = "（PDF 为扫描件或无嵌入文本，需 OCR）";
+        result.fullText = text;
+        result.chunks = chunkText(text, 0);
     }
 
-    /**
-     * 文本分块：按段落优先，超长段落再按定长切
-     */
+    // ========== 分块 ==========
+
     public static List<Chunk> chunkText(String text, int startIndex) {
         List<Chunk> chunks = new ArrayList<>();
         if (text == null || text.isEmpty()) return chunks;
 
-        // 先按双换行分段
         String[] paragraphs = text.split("\\n\\s*\\n");
         StringBuilder current = new StringBuilder();
         int idx = startIndex;
@@ -233,31 +214,14 @@ public class LargeFileHandler {
         chunks.add(c);
     }
 
-    /** 简单摘要：取前 200 字 */
     private static String summarize(String text) {
         if (text == null) return "";
         String t = text.replaceAll("\\s+", " ").trim();
         return t.length() > 200 ? t.substring(0, 200) + "…" : t;
     }
 
-    private static String getExtension(String fileName) {
-        int dot = fileName.lastIndexOf('.');
-        return dot >= 0 ? fileName.substring(dot + 1) : "";
-    }
+    // ========== 检索 ==========
 
-    private static boolean isTextBased(String ext) {
-        return "txt".equals(ext) || "md".equals(ext) || "markdown".equals(ext)
-                || "log".equals(ext) || "csv".equals(ext) || "json".equals(ext)
-                || "xml".equals(ext) || "html".equals(ext) || "htm".equals(ext)
-                || "java".equals(ext) || "kt".equals(ext) || "py".equals(ext)
-                || "js".equals(ext) || "ts".equals(ext) || "c".equals(ext)
-                || "cpp".equals(ext) || "h".equals(ext) || "css".equals(ext)
-                || "sh".equals(ext) || "yml".equals(ext) || "yaml".equals(ext);
-    }
-
-    /**
-     * 检索：关键词匹配 + 简单评分
-     */
     public static List<Chunk> search(List<Chunk> chunks, String query, int topK) {
         if (chunks == null || chunks.isEmpty() || query == null || query.trim().isEmpty())
             return new ArrayList<>();
@@ -290,5 +254,78 @@ public class LargeFileHandler {
         Chunk chunk;
         int score;
         Scored(Chunk c, int s) { chunk = c; score = s; }
+    }
+
+    // ========== 工具 ==========
+
+    private static String readAllText(Context ctx, String path) throws Exception {
+        InputStream in = openStream(ctx, path);
+        if (in == null) return "";
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) != -1) baos.write(buf, 0, n);
+        in.close();
+        byte[] bytes = baos.toByteArray();
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        if (isGarbled(text)) {
+            text = new String(bytes, Charset.forName("GB18030"));
+        }
+        return text;
+    }
+
+    private static boolean isGarbled(String text) {
+        if (text == null || text.isEmpty()) return false;
+        int bad = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '\uFFFD') bad++;
+        }
+        return bad > text.length() / 50;
+    }
+
+    private static String extractXmlText(InputStream in) throws Exception {
+        XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        XmlPullParser parser = factory.newPullParser();
+        parser.setInput(new InputStreamReader(in, StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        int eventType = parser.getEventType();
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            if (eventType == XmlPullParser.START_TAG && "p".equals(parser.getName())) {
+                sb.append('\n');
+            } else if (eventType == XmlPullParser.TEXT) {
+                sb.append(parser.getText());
+            }
+            eventType = parser.next();
+        }
+        return sb.toString();
+    }
+
+    private static InputStream openStream(Context ctx, String path) throws Exception {
+        if (path == null) return null;
+        if (path.startsWith("/")) {
+            return new FileInputStream(new File(path));
+        }
+        try {
+            return ctx.getContentResolver().openInputStream(Uri.parse(path));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String getExtension(String fileName) {
+        if (fileName == null) return "";
+        int dot = fileName.lastIndexOf('.');
+        return dot >= 0 ? fileName.substring(dot + 1) : "";
+    }
+
+    private static boolean isTextBased(String ext) {
+        return "txt".equals(ext) || "md".equals(ext) || "markdown".equals(ext)
+                || "log".equals(ext) || "csv".equals(ext) || "json".equals(ext)
+                || "xml".equals(ext) || "html".equals(ext) || "htm".equals(ext)
+                || "java".equals(ext) || "kt".equals(ext) || "py".equals(ext)
+                || "js".equals(ext) || "ts".equals(ext) || "c".equals(ext)
+                || "cpp".equals(ext) || "h".equals(ext) || "css".equals(ext)
+                || "sh".equals(ext) || "yml".equals(ext) || "yaml".equals(ext);
     }
 }
