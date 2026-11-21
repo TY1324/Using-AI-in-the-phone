@@ -8,6 +8,7 @@ import java.util.List;
 
 public class ContextManager {
 
+    // 策略常量
     public static final String STRATEGY_OFF = "off";
     public static final String STRATEGY_SLIDING = "sliding";
     public static final String STRATEGY_SUMMARY = "summary";
@@ -48,6 +49,12 @@ public class ContextManager {
         return total;
     }
 
+    /**
+     * 按策略裁剪消息
+     * @param msgs 原始消息
+     * @param budgetTokens 预算（token）
+     * @param strategy off / sliding / summary
+     */
     public static JSONArray applyStrategy(JSONArray msgs, int budgetTokens, String strategy) {
         if (msgs == null || msgs.length() == 0) return msgs;
         if (STRATEGY_OFF.equals(strategy)) return msgs;
@@ -83,6 +90,7 @@ public class ContextManager {
         }
 
         if (used + recentTokens > budgetTokens) {
+            // 连 system + 最近都不够，只保留最近 5 条
             for (int i = Math.max(0, recent.size() - 5); i < recent.size(); i++) {
                 result.put(recent.get(i));
             }
@@ -107,6 +115,7 @@ public class ContextManager {
                 }
             }
         }
+        // sliding 策略：直接丢弃 middle
 
         for (JSONObject m : recent) {
             result.put(m);
