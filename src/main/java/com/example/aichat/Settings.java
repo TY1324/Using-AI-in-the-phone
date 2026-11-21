@@ -24,6 +24,8 @@ public class Settings {
     private static final String KEY_VISION = "g_vision";
     private static final String KEY_SEARCH_ENGINE = "g_search_engine";
     private static final String KEY_SEARCH_KEY = "g_search_key";
+    private static final String KEY_PRICES = "g_prices";
+    private static final String KEY_USAGE = "g_usage";
 
     private final SharedPreferences sp;
 
@@ -55,26 +57,6 @@ public class Settings {
         sp.edit().putString(KEY_CONTEXT, strategy).apply();
     }
 
-    public String searchEngine() {
-        return sp.getString(KEY_SEARCH_ENGINE, "ddg");
-    }
-
-    public String searchApiKey() {
-        return sp.getString(KEY_SEARCH_KEY, "");
-    }
-
-    public void saveSearchConfig(String engine, String key) {
-        sp.edit().putString(KEY_SEARCH_ENGINE, engine).putString(KEY_SEARCH_KEY, key).apply();
-    }
-
-    public String visionJson() {
-        return sp.getString(KEY_VISION, "");
-    }
-
-    public void saveVisionJson(String json) {
-        sp.edit().putString(KEY_VISION, json).apply();
-    }
-
     public boolean memoryOn() {
         return sp.getString(KEY_MEM_ON, "off").equals("on");
     }
@@ -93,6 +75,58 @@ public class Settings {
 
     public void clearMemory() {
         sp.edit().remove(KEY_MEM).apply();
+    }
+
+    public String visionJson() {
+        return sp.getString(KEY_VISION, "");
+    }
+
+    public void saveVisionJson(String json) {
+        sp.edit().putString(KEY_VISION, json).apply();
+    }
+
+    public String searchEngine() {
+        return sp.getString(KEY_SEARCH_ENGINE, "ddg");
+    }
+
+    public String searchApiKey() {
+        return sp.getString(KEY_SEARCH_KEY, "");
+    }
+
+    public void saveSearchConfig(String engine, String key) {
+        sp.edit().putString(KEY_SEARCH_ENGINE, engine).putString(KEY_SEARCH_KEY, key).apply();
+    }
+
+    // ===== 价格表 =====
+    // 每百万 token 价格（元），字段: {input, output}
+    public void savePrices(String json) {
+        sp.edit().putString(KEY_PRICES, json).apply();
+    }
+
+    public String pricesJson() {
+        return sp.getString(KEY_PRICES, "[]");
+    }
+
+    // ===== 累计用量 =====
+    // 字段: {tokens, cost, turns}
+
+    public void addUsage(int tokens, double cost, int turns) {
+        try {
+            JSONObject o = new JSONObject(sp.getString(KEY_USAGE, "{}"));
+            o.put("tokens", o.optInt("tokens", 0) + Math.max(0, tokens));
+            o.put("cost", o.optDouble("cost", 0) + Math.max(0, cost));
+            o.put("turns", o.optInt("turns", 0) + Math.max(0, turns));
+            sp.edit().putString(KEY_USAGE, o.toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    public String usageJson() {
+        return sp.getString(KEY_USAGE, "{}");
+    }
+
+    public void clearUsage() {
+        sp.edit().remove(KEY_USAGE).apply();
     }
 
     public boolean globalThinking() {
