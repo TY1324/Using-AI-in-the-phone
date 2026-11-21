@@ -22,6 +22,8 @@ public class Settings {
     private static final String KEY_MEM_ON = "g_memory_on";
     private static final String KEY_MEM = "g_memory";
     private static final String KEY_VISION = "g_vision";
+    private static final String KEY_SEARCH_ENGINE = "g_search_engine";
+    private static final String KEY_SEARCH_KEY = "g_search_key";
 
     private final SharedPreferences sp;
 
@@ -51,6 +53,18 @@ public class Settings {
 
     public void saveContextStrategy(String strategy) {
         sp.edit().putString(KEY_CONTEXT, strategy).apply();
+    }
+
+    public String searchEngine() {
+        return sp.getString(KEY_SEARCH_ENGINE, "ddg");
+    }
+
+    public String searchApiKey() {
+        return sp.getString(KEY_SEARCH_KEY, "");
+    }
+
+    public void saveSearchConfig(String engine, String key) {
+        sp.edit().putString(KEY_SEARCH_ENGINE, engine).putString(KEY_SEARCH_KEY, key).apply();
     }
 
     public String visionJson() {
