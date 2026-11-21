@@ -17,12 +17,11 @@ import java.util.Map;
  * 在线价格提供器
  *
  * 数据源（按优先级尝试，失败自动回退）：
- * 1. OpenRouter /api/v1/models  —— 覆盖 300+ 模型，字段 input_cost_per_token（美元/Token）
- * 2. LiteLLM 价格表（GitHub）   —— 字段 input_cost_per_token / output_cost_per_token（美元/Token）
+ * 1. OpenRouter /api/v1/models —— 覆盖 300+ 模型，字段 input_cost_per_token（美元/Token）
+ * 2. LiteLLM 价格表（GitHub / jsDelivr CDN）
  *
- * 汇率： exchangerate.host 获取 USD/CNY，失败用固定 7.2
- *
- * 所有价格最终统一为「元 / 百万 token」
+ * 汇率：open.er-api.com 获取 USD/CNY，失败用固定 7.2
+ * 所有价格统一为「元 / 百万 token」
  */
 public class LivePriceProvider {
 
@@ -36,8 +35,7 @@ public class LivePriceProvider {
             "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
     private static final String LITELLM_CDN_URL =
             "https://cdn.jsdelivr.net/gh/BerriAI/litellm@main/model_prices_and_context_window.json";
-    private static final String EXCHANGE_URL =
-            "https://open.er-api.com/v6/latest/USD";
+    private static final String EXCHANGE_URL = "https://open.er-api.com/v6/latest/USD";
 
     private static double cachedRate = 0;
 
@@ -61,7 +59,6 @@ public class LivePriceProvider {
      */
     public static void fetchAndMerge(final Settings settings, final Callback cb) {
         new Thread(() -> {
-            // 先试 OpenRouter
             try {
                 String json = httpGet(OPENROUTER_URL, 15000);
                 int n = mergeOpenRouter(settings, json);
@@ -72,7 +69,6 @@ public class LivePriceProvider {
             } catch (Exception ignored) {
             }
 
-            // 再试 LiteLLM（GitHub raw，失败走 CDN）
             try {
                 String json;
                 try {
@@ -111,7 +107,6 @@ public class LivePriceProvider {
             double outUsd = m.optDouble("output_cost_per_token", 0);
             if (inUsd <= 0 && outUsd <= 0) continue;
 
-            // 美元/Token → 元/百万Token
             double inCny = inUsd * rate * 1000000.0;
             double outCny = outUsd * rate * 1000000.0;
             merged.put(id, new double[]{inCny, outCny});
@@ -186,6 +181,27 @@ public class LivePriceProvider {
         return Math.round(v * 10000.0) / 10000.0;
     }
 
+    /**
+     * 在已保存的价格表中查询某个模型
+     * @return {input, output} 元/百万token；找不到返回 null
+     */
+    public static double[] lookup(Settings settings, String model) {
+        if (settings == null || model == null || model.isEmpty()) return null;
+        try {
+            JSONArray arr = new JSONArray(settings.pricesJson());
+            String target = model.toLowerCase();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.getJSONObject(i);
+                String m = o.optString("model", "").toLowerCase();
+                if (m.equals(target) || target.startsWith(m) || m.startsWith(target)) {
+                    return new double[]{o.optDouble("input", 0), o.optDouble("output", 0)};
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
     // ========== HTTP ==========
 
     private static String httpGet(String urlStr, int timeout) throws Exception {
@@ -209,17 +225,5 @@ public class LivePriceProvider {
         br.close();
         c.disconnect();
         return sb.toString();
-    }
-
-    /**
-     * 查询单个模型的实时价格（用于界面显示）
-     * @return {input, output} 元/百万token，找不到返回 null
-     */
-    public static double[] lookup(String model) {
-        try {
-            JSONArray arr = new JSONArray(new Settings(null).pricesJson());
-        } catch (Exception ignored) {
-        }
-        return null;
     }
 }
