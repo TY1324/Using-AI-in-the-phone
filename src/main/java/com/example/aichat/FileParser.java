@@ -1,6 +1,7 @@
 package com.example.aichat;
 
 import android.content.Context;
+import android.net.Uri;
 
 import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParser;
@@ -14,12 +15,13 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class FileParser {
 
-    // 文本类扩展名（含 Markdown）
     private static final String[] TEXT_EXTS = {
             "txt", "md", "markdown", "log", "csv", "json", "xml",
             "html", "htm", "java", "kt", "py", "js", "ts", "c", "cpp", "h",
@@ -86,8 +88,13 @@ public class FileParser {
                 r.words = countWords(r.text);
                 return r;
             }
+            if (lower.endsWith(".doc") || lower.endsWith(".xls") || lower.endsWith(".ppt")) {
+                r.type = "legacy";
+                r.text = parseText(ctx, content);
+                r.words = countWords(r.text);
+                return r;
+            }
 
-            // 文本类（含 .txt / .md）
             r.type = "text";
             r.text = parseText(ctx, content);
             r.encoding = detectEncoding(ctx, content);
@@ -100,9 +107,9 @@ public class FileParser {
         }
     }
 
-    // ========== 文本解析：UTF-8 → GB18030(含GBK/GB2312) 自动回退 ==========
+    // ========== 公开方法（供 LargeFileHandler 调用） ==========
 
-    private static String parseText(Context ctx, String content) throws Exception {
+    public static String parseText(Context ctx, String content) throws Exception {
         byte[] bytes = readAllBytes(ctx, content);
         if (bytes == null || bytes.length == 0) return "";
 
@@ -110,12 +117,110 @@ public class FileParser {
         if (isGarbled(text)) {
             text = decode(bytes, Charset.forName("GB18030"));
         }
-        // 去除 BOM
         if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
             text = text.substring(1);
         }
         return text;
     }
+
+    public static String parseDocx(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            if ("word/document.xml".equals(entry.getName())) {
+                text.append(extractXmlText(zis));
+            }
+        }
+        zis.close();
+        return text.toString();
+    }
+
+    public static String parseXlsx(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            String n = entry.getName();
+            if (n.startsWith("xl/sharedStrings.xml") || n.matches("xl/worksheets/sheet\\d+\\.xml")) {
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        return text.toString();
+    }
+
+    public static String parsePptx(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        int slide = 0;
+        while ((entry = zis.getNextEntry()) != null) {
+            if (entry.getName().matches("ppt/slides/slide\\d+\\.xml")) {
+                slide++;
+                text.append("--- 幻灯片 ").append(slide).append(" ---\n");
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        return text.toString();
+    }
+
+    public static String parseEpub(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            String n = entry.getName();
+            if (n.endsWith(".xhtml") || n.endsWith(".html") || n.endsWith(".htm")) {
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        return stripHtml(text.toString());
+    }
+
+    public static String parsePdf(Context ctx, String content) throws Exception {
+        byte[] bytes = readAllBytes(ctx, content);
+        if (bytes == null) return "";
+        String raw = new String(bytes, StandardCharsets.ISO_8859_1);
+        StringBuilder result = new StringBuilder();
+        int idx = 0;
+        while ((idx = raw.indexOf("BT", idx)) != -1) {
+            int end = raw.indexOf("ET", idx);
+            if (end == -1) break;
+            String block = raw.substring(idx, end);
+            java.util.regex.Pattern p1 = java.util.regex.Pattern.compile("\\((.*?)\\)\\s*Tj");
+            java.util.regex.Matcher m1 = p1.matcher(block);
+            while (m1.find()) result.append(m1.group(1));
+            java.util.regex.Pattern p2 = java.util.regex.Pattern.compile("\\[(.*?)\\]\\s*TJ");
+            java.util.regex.Matcher m2 = p2.matcher(block);
+            while (m2.find()) {
+                java.util.regex.Pattern p3 = java.util.regex.Pattern.compile("\\((.*?)\\)");
+                java.util.regex.Matcher m3 = p3.matcher(m2.group(1));
+                while (m3.find()) result.append(m3.group(1));
+            }
+            idx = end + 2;
+        }
+        if (result.toString().trim().isEmpty()) {
+            return "（PDF 为扫描件或无嵌入文本，需 OCR）";
+        }
+        return result.toString();
+    }
+
+    public static String parsePdfLite(Context ctx, String content) throws Exception {
+        return parsePdf(ctx, content);
+    }
+
+    // ========== 内部工具 ==========
 
     private static String detectEncoding(Context ctx, String content) {
         try {
@@ -144,9 +249,6 @@ public class FileParser {
         return new String(bytes, cs);
     }
 
-    /**
-     * 判断是否为乱码：统计替换字符 U+FFFD 比例
-     */
     private static boolean isGarbled(String text) {
         if (text == null || text.isEmpty()) return false;
         int bad = 0;
@@ -155,111 +257,6 @@ public class FileParser {
         }
         return bad > text.length() / 50;
     }
-
-    // ========== PDF（轻量提取） ==========
-
-    private static String parsePdf(Context ctx, String content) throws Exception {
-        byte[] bytes = readAllBytes(ctx, content);
-        if (bytes == null) return "";
-        String raw = new String(bytes, StandardCharsets.ISO_8859_1);
-        StringBuilder result = new StringBuilder();
-        int idx = 0;
-        while ((idx = raw.indexOf("BT", idx)) != -1) {
-            int end = raw.indexOf("ET", idx);
-            if (end == -1) break;
-            String block = raw.substring(idx, end);
-            java.util.regex.Pattern p1 = java.util.regex.Pattern.compile("\\((.*?)\\)\\s*Tj");
-            java.util.regex.Matcher m1 = p1.matcher(block);
-            while (m1.find()) result.append(m1.group(1));
-            java.util.regex.Pattern p2 = java.util.regex.Pattern.compile("\\[(.*?)\\]\\s*TJ");
-            java.util.regex.Matcher m2 = p2.matcher(block);
-            while (m2.find()) {
-                java.util.regex.Pattern p3 = java.util.regex.Pattern.compile("\\((.*?)\\)");
-                java.util.regex.Matcher m3 = p3.matcher(m2.group(1));
-                while (m3.find()) result.append(m3.group(1));
-            }
-            idx = end + 2;
-        }
-        if (result.toString().trim().isEmpty()) {
-            return "（PDF 为扫描件或无嵌入文本，需 OCR）";
-        }
-        return result.toString();
-    }
-
-    // ========== DOCX ==========
-
-    private static String parseDocx(Context ctx, String content) throws Exception {
-        InputStream in = openStream(ctx, content);
-        if (in == null) return "";
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        StringBuilder text = new StringBuilder();
-        while ((entry = zis.getNextEntry()) != null) {
-            if ("word/document.xml".equals(entry.getName())) {
-                text.append(extractXmlText(zis));
-            }
-        }
-        zis.close();
-        return text.toString();
-    }
-
-    // ========== XLSX ==========
-
-    private static String parseXlsx(Context ctx, String content) throws Exception {
-        InputStream in = openStream(ctx, content);
-        if (in == null) return "";
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        StringBuilder text = new StringBuilder();
-        while ((entry = zis.getNextEntry()) != null) {
-            String n = entry.getName();
-            if (n.startsWith("xl/sharedStrings.xml") || n.matches("xl/worksheets/sheet\\d+\\.xml")) {
-                text.append(extractXmlText(zis)).append('\n');
-            }
-        }
-        zis.close();
-        return text.toString();
-    }
-
-    // ========== PPTX ==========
-
-    private static String parsePptx(Context ctx, String content) throws Exception {
-        InputStream in = openStream(ctx, content);
-        if (in == null) return "";
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        StringBuilder text = new StringBuilder();
-        int slide = 0;
-        while ((entry = zis.getNextEntry()) != null) {
-            if (entry.getName().matches("ppt/slides/slide\\d+\\.xml")) {
-                slide++;
-                text.append("--- 幻灯片 ").append(slide).append(" ---\n");
-                text.append(extractXmlText(zis)).append('\n');
-            }
-        }
-        zis.close();
-        return text.toString();
-    }
-
-    // ========== EPUB ==========
-
-    private static String parseEpub(Context ctx, String content) throws Exception {
-        InputStream in = openStream(ctx, content);
-        if (in == null) return "";
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        StringBuilder text = new StringBuilder();
-        while ((entry = zis.getNextEntry()) != null) {
-            String n = entry.getName();
-            if (n.endsWith(".xhtml") || n.endsWith(".html") || n.endsWith(".htm")) {
-                text.append(extractXmlText(zis)).append('\n');
-            }
-        }
-        zis.close();
-        return stripHtml(text.toString());
-    }
-
-    // ========== XML 文本提取 ==========
 
     private static String extractXmlText(InputStream in) throws Exception {
         XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
@@ -285,15 +282,13 @@ public class FileParser {
                 .trim();
     }
 
-    // ========== 工具 ==========
-
     private static InputStream openStream(Context ctx, String content) throws Exception {
         if (content == null) return null;
         if (content.startsWith("/")) {
             return new FileInputStream(new File(content));
         }
         try {
-            return ctx.getContentResolver().openInputStream(android.net.Uri.parse(content));
+            return ctx.getContentResolver().openInputStream(Uri.parse(content));
         } catch (Exception e) {
             return null;
         }
