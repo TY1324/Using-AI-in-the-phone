@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.util.Base64;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -15,7 +16,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import android.util.Base64;
 
 public class ImageVideoGenerator {
 
@@ -67,17 +67,14 @@ public class ImageVideoGenerator {
         c.disconnect();
 
         JSONObject j = new JSONObject(sb.toString());
-        JSONArray data = j.getJSONArray("data");
-        if (data.length() == 0) throw new Exception("无图片返回");
+        JSONArray data = j.optJSONArray("data");
+        if (data == null || data.length() == 0) throw new Exception("无图片返回");
         JSONObject item = data.getJSONObject(0);
         if (item.has("b64_json")) return item.getString("b64_json");
         if (item.has("url")) return item.getString("url");
         throw new Exception("无法解析图片数据");
     }
 
-    /**
-     * Sora 视频生成
-     */
     public static String generateVideoSora(String host, String key, String model,
                                            String prompt, String duration) throws Exception {
         while (host.endsWith("/")) host = host.substring(0, host.length() - 1);
@@ -124,21 +121,16 @@ public class ImageVideoGenerator {
         c.disconnect();
 
         JSONObject j = new JSONObject(sb.toString());
-        if (j.has("data")) {
-            JSONArray data = j.getJSONArray("data");
-            if (data.length() > 0) {
-                JSONObject item = data.getJSONObject(0);
-                if (item.has("url")) return item.getString("url");
-                if (item.has("b64_json")) return item.getString("b64_json");
-            }
+        JSONArray data = j.optJSONArray("data");
+        if (data != null && data.length() > 0) {
+            JSONObject item = data.getJSONObject(0);
+            if (item.has("url")) return item.getString("url");
+            if (item.has("b64_json")) return item.getString("b64_json");
         }
         if (j.has("url")) return j.getString("url");
         throw new Exception("无法解析视频数据");
     }
 
-    /**
-     * Claude 代码生成视频（通过 Claude 生成 HTML/JS 动画代码，返回可执行的 HTML 字符串）
-     */
     public static String generateVideoClaudeCode(String claudeHost, String claudeKey, String claudeModel,
                                                  String prompt, String duration) throws Exception {
         while (claudeHost.endsWith("/")) claudeHost = claudeHost.substring(0, claudeHost.length() - 1);
@@ -204,8 +196,8 @@ public class ImageVideoGenerator {
         c.disconnect();
 
         JSONObject j = new JSONObject(sb.toString());
-        JSONArray content = j.getJSONArray("content");
-        if (content.length() == 0) throw new Exception("Claude 未返回内容");
+        JSONArray content = j.optJSONArray("content");
+        if (content == null || content.length() == 0) throw new Exception("Claude 未返回内容");
         JSONObject item = content.getJSONObject(0);
         if (!item.has("text")) throw new Exception("Claude 未返回文本");
         return item.getString("text");
