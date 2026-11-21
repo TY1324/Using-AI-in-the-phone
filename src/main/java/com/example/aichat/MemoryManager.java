@@ -11,14 +11,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-/**
- * 会话记忆：异步抽取 + 注入
- *
- * 流程：
- * 1. 每轮结束后，用模型总结「值得长期记住的内容」
- * 2. 存到 Settings.memory()（全局，可按需改为按会话）
- * 3. 下次发送时，作为 system 消息注入
- */
 public class MemoryManager {
 
     public interface Callback {
@@ -26,12 +18,21 @@ public class MemoryManager {
         void onError(String msg);
     }
 
-    /**
-     * 抽取记忆：把最近对话总结成 3-5 条要点
-     */
     public static void extract(String type, String host, String key, String model,
                                String recentDialogue, final String prevMemory,
                                final Callback cb) {
+        new Thread(() -> {
+            try {
+                String result = doExtract(type, host, key, model, recentDialogue, prevMemory);
+                cb.onDone(result);
+            } catch (Exception e) {
+                cb.onError(e.getMessage());
+            }
+        }).start();
+    }
+
+    private static String doExtract(String type, String host, String key, String model,
+                                    String recentDialogue, String prevMemory) throws Exception {
         while (host.endsWith("/")) host = host.substring(0, host.length() - 1);
 
         JSONArray messages = new JSONArray();
@@ -83,50 +84,41 @@ public class MemoryManager {
             c.setRequestProperty("Authorization", "Bearer " + key);
         }
 
-        try {
-            c.setRequestMethod("POST");
-            c.setRequestProperty("Content-Type", "application/json");
-            c.setDoOutput(true);
-            c.setConnectTimeout(30000);
-            c.setReadTimeout(120000);
+        c.setRequestMethod("POST");
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setDoOutput(true);
+        c.setConnectTimeout(30000);
+        c.setReadTimeout(120000);
 
-            OutputStream os = c.getOutputStream();
-            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
-            os.flush();
-            os.close();
+        OutputStream os = c.getOutputStream();
+        os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        os.flush();
+        os.close();
 
-            int code = c.getResponseCode();
-            if (code < 200 || code >= 300) {
-                InputStream es = c.getErrorStream();
-                StringBuilder eb = new StringBuilder();
-                if (es != null) {
-                    BufferedReader er = new BufferedReader(new InputStreamReader(es, StandardCharsets.UTF_8));
-                    String l;
-                    while ((l = er.readLine()) != null) eb.append(l);
-                    er.close();
-                }
-                cb.onError("HTTP " + code);
-                return;
+        int code = c.getResponseCode();
+        if (code < 200 || code >= 300) {
+            InputStream es = c.getErrorStream();
+            StringBuilder eb = new StringBuilder();
+            if (es != null) {
+                BufferedReader er = new BufferedReader(new InputStreamReader(es, StandardCharsets.UTF_8));
+                String l;
+                while ((l = er.readLine()) != null) eb.append(l);
+                er.close();
             }
-
-            BufferedReader br = new BufferedReader(
-                    new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line);
-            br.close();
-            c.disconnect();
-
-            String text = extractText(type, sb.toString());
-            cb.onDone(text);
-        } catch (Exception e) {
-            cb.onError(e.getMessage());
+            throw new Exception("HTTP " + code + " " + eb.toString());
         }
+
+        BufferedReader br = new BufferedReader(
+                new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = br.readLine()) != null) sb.append(line);
+        br.close();
+        c.disconnect();
+
+        return extractText(type, sb.toString());
     }
 
-    /**
-     * 把记忆转成 system 消息（若无记忆返回 null）
-     */
     public static JSONObject toSystemMessage(String memory) {
         if (memory == null || memory.trim().isEmpty()) return null;
         if (memory.trim().equals("（无）")) return null;
