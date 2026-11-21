@@ -19,6 +19,8 @@ public class Settings {
     private static final String KEY_THINKING = "g_thinking";
     private static final String KEY_PRESETS = "g_presets";
     private static final String KEY_CONTEXT = "g_context_strategy";
+    private static final String KEY_MEM_ON = "g_memory_on";
+    private static final String KEY_MEM = "g_memory";
 
     private final SharedPreferences sp;
 
@@ -48,6 +50,26 @@ public class Settings {
 
     public void saveContextStrategy(String strategy) {
         sp.edit().putString(KEY_CONTEXT, strategy).apply();
+    }
+
+    public boolean memoryOn() {
+        return sp.getString(KEY_MEM_ON, "off").equals("on");
+    }
+
+    public void saveMemoryOn(boolean on) {
+        sp.edit().putString(KEY_MEM_ON, on ? "on" : "off").apply();
+    }
+
+    public String memory() {
+        return sp.getString(KEY_MEM, "");
+    }
+
+    public void saveMemory(String mem) {
+        sp.edit().putString(KEY_MEM, mem).apply();
+    }
+
+    public void clearMemory() {
+        sp.edit().remove(KEY_MEM).apply();
     }
 
     public boolean globalThinking() {
