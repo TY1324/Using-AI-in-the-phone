@@ -57,6 +57,7 @@ public class FileDelivery {
         return new SavedFile(out, kind);
     }
 
+    /** 分享：把内容作为文本发送 */
     public static void share(Context ctx, SavedFile sf, String title) {
         try {
             Intent i = new Intent(Intent.ACTION_SEND);
@@ -71,6 +72,7 @@ public class FileDelivery {
         }
     }
 
+    /** 打开：交给系统应用 */
     public static void open(Context ctx, SavedFile sf) {
         try {
             Intent i = new Intent(Intent.ACTION_VIEW);
