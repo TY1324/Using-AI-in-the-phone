@@ -1,271 +1,317 @@
 package com.example.aichat;
 
 import android.content.Context;
-import android.net.Uri;
+
+import org.json.JSONObject;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserFactory;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class FileParser {
 
-    public static String parse(Context ctx, Uri uri, String name) throws Exception {
-        InputStream in = ctx.getContentResolver().openInputStream(uri);
-        if (in == null) throw new Exception("无法打开文件");
+    // 文本类扩展名（含 Markdown）
+    private static final String[] TEXT_EXTS = {
+            "txt", "md", "markdown", "log", "csv", "json", "xml",
+            "html", "htm", "java", "kt", "py", "js", "ts", "c", "cpp", "h",
+            "css", "sh", "yml", "yaml", "toml", "ini", "cfg"
+    };
+
+    public static class Result {
+        public String text = "";
+        public int pages = 0;
+        public int words = 0;
+        public String type = "";
+        public String encoding = "";
+    }
+
+    public static boolean isTextLike(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase();
+        int dot = lower.lastIndexOf('.');
+        if (dot < 0) return false;
+        String ext = lower.substring(dot + 1);
+        for (String t : TEXT_EXTS) {
+            if (t.equals(ext)) return true;
+        }
+        return false;
+    }
+
+    public static Result parse(Context ctx, String content, String fileName) {
+        Result r = new Result();
         try {
-            String lower = name.toLowerCase();
-            if (lower.endsWith(".zip")) return parseZip(in);
-            if (lower.endsWith(".epub")) return parseEpub(in);
-            if (lower.endsWith(".docx")) return parseDocx(in);
-            if (lower.endsWith(".xlsx")) return parseXlsx(in);
-            if (lower.endsWith(".pdf")) return parsePdf(in);
-            if (lower.endsWith(".doc") || lower.endsWith(".xls") || lower.endsWith(".ppt")) {
-                return parseOfficeLegacy(in);
+            if (content == null || content.isEmpty()) {
+                r.type = "empty";
+                return r;
             }
-            return readText(in);
-        } finally {
-            in.close();
+            if (fileName == null) fileName = "";
+            String lower = fileName.toLowerCase();
+
+            if (lower.endsWith(".pdf")) {
+                r.type = "pdf";
+                r.text = parsePdf(ctx, content);
+                r.words = countWords(r.text);
+                return r;
+            }
+            if (lower.endsWith(".docx")) {
+                r.type = "docx";
+                r.text = parseDocx(ctx, content);
+                r.words = countWords(r.text);
+                return r;
+            }
+            if (lower.endsWith(".xlsx")) {
+                r.type = "xlsx";
+                r.text = parseXlsx(ctx, content);
+                r.words = countWords(r.text);
+                return r;
+            }
+            if (lower.endsWith(".pptx")) {
+                r.type = "pptx";
+                r.text = parsePptx(ctx, content);
+                r.words = countWords(r.text);
+                return r;
+            }
+            if (lower.endsWith(".epub")) {
+                r.type = "epub";
+                r.text = parseEpub(ctx, content);
+                r.words = countWords(r.text);
+                return r;
+            }
+
+            // 文本类（含 .txt / .md）
+            r.type = "text";
+            r.text = parseText(ctx, content);
+            r.encoding = detectEncoding(ctx, content);
+            r.words = countWords(r.text);
+            return r;
+        } catch (Exception e) {
+            r.type = "error";
+            r.text = "解析失败：" + e.getMessage();
+            return r;
         }
     }
 
-    private static String readText(InputStream in) throws Exception {
-        BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = br.readLine()) != null) sb.append(line).append("\n");
-        br.close();
-        return sb.toString();
+    // ========== 文本解析：UTF-8 → GB18030(含GBK/GB2312) 自动回退 ==========
+
+    private static String parseText(Context ctx, String content) throws Exception {
+        byte[] bytes = readAllBytes(ctx, content);
+        if (bytes == null || bytes.length == 0) return "";
+
+        String text = decode(bytes, StandardCharsets.UTF_8);
+        if (isGarbled(text)) {
+            text = decode(bytes, Charset.forName("GB18030"));
+        }
+        // 去除 BOM
+        if (!text.isEmpty() && text.charAt(0) == '\uFEFF') {
+            text = text.substring(1);
+        }
+        return text;
     }
 
-    private static String parseZip(InputStream in) throws Exception {
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        StringBuilder sb = new StringBuilder();
-        while ((entry = zis.getNextEntry()) != null) {
-            if (entry.isDirectory()) continue;
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = zis.read(buf)) != -1) baos.write(buf, 0, n);
-            String nm = entry.getName().toLowerCase();
-            if (nm.endsWith(".txt") || nm.endsWith(".md") || nm.endsWith(".json")
-                    || nm.endsWith(".html") || nm.endsWith(".htm")) {
-                try {
-                    String content = new String(baos.toByteArray(), StandardCharsets.UTF_8);
-                    sb.append("===== ").append(entry.getName()).append(" =====\n")
-                            .append(content).append("\n\n");
-                } catch (Exception ignored) {
-                }
-            }
+    private static String detectEncoding(Context ctx, String content) {
+        try {
+            byte[] bytes = readAllBytes(ctx, content);
+            if (bytes == null) return "unknown";
+            String utf8 = decode(bytes, StandardCharsets.UTF_8);
+            if (!isGarbled(utf8)) return "UTF-8";
+            return "GB18030(GBK/GB2312)";
+        } catch (Exception e) {
+            return "unknown";
         }
-        zis.close();
-        if (sb.length() == 0) throw new Exception("ZIP 未找到可读文本文件");
-        return sb.toString();
     }
 
-    private static String parseEpub(InputStream in) throws Exception {
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
-        List<String> htmlNames = new ArrayList<>();
-        while ((entry = zis.getNextEntry()) != null) {
-            if (entry.isDirectory()) continue;
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = zis.read(buf)) != -1) baos.write(buf, 0, n);
-            entries.put(entry.getName(), baos.toByteArray());
-            String nm = entry.getName().toLowerCase();
-            if (nm.endsWith(".html") || nm.endsWith(".xhtml") || nm.endsWith(".htm")) {
-                htmlNames.add(entry.getName());
-            }
-        }
-        zis.close();
-        java.util.Collections.sort(htmlNames);
-        StringBuilder sb = new StringBuilder();
-        for (String hn : htmlNames) {
-            byte[] data = entries.get(hn);
-            if (data == null) continue;
-            String html = new String(data, StandardCharsets.UTF_8);
-            sb.append(stripTags(html)).append("\n\n");
-        }
-        if (sb.length() == 0) throw new Exception("EPUB 未找到可读章节");
-        return sb.toString();
-    }
-
-    private static String parseDocx(InputStream in) throws Exception {
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        StringBuilder sb = new StringBuilder();
-        while ((entry = zis.getNextEntry()) != null) {
-            if (entry.getName().equals("word/document.xml")) {
-                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = zis.read(buf)) != -1) baos.write(buf, 0, n);
-                String xml = new String(baos.toByteArray(), StandardCharsets.UTF_8);
-                int idx = 0;
-                while (true) {
-                    int start = xml.indexOf("<w:t", idx);
-                    if (start == -1) break;
-                    int gt = xml.indexOf(">", start);
-                    if (gt == -1) break;
-                    int end = xml.indexOf("</w:t>", gt);
-                    if (end == -1) break;
-                    String text = xml.substring(gt + 1, end);
-                    sb.append(text);
-                    int pEnd = xml.indexOf("</w:p>", end);
-                    if (pEnd != -1 && pEnd > end && pEnd < end + 50) {
-                        sb.append("\n");
-                    }
-                    idx = end + 6;
-                }
-            }
-        }
-        zis.close();
-        if (sb.length() == 0) throw new Exception("DOCX 未找到文本");
-        return sb.toString();
-    }
-
-    private static String parseXlsx(InputStream in) throws Exception {
-        ZipInputStream zis = new ZipInputStream(in);
-        ZipEntry entry;
-        java.util.Map<String, byte[]> entries = new java.util.HashMap<>();
-        while ((entry = zis.getNextEntry()) != null) {
-            if (entry.isDirectory()) continue;
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = zis.read(buf)) != -1) baos.write(buf, 0, n);
-            entries.put(entry.getName(), baos.toByteArray());
-        }
-        zis.close();
-
-        List<String> shared = new ArrayList<>();
-        byte[] ssData = entries.get("xl/sharedStrings.xml");
-        if (ssData != null) {
-            String xml = new String(ssData, StandardCharsets.UTF_8);
-            int idx = 0;
-            while (true) {
-                int start = xml.indexOf("<t", idx);
-                if (start == -1) break;
-                int gt = xml.indexOf(">", start);
-                if (gt == -1) break;
-                if (xml.charAt(gt - 1) == '/') { idx = gt + 1; continue; }
-                int end = xml.indexOf("</t>", gt);
-                if (end == -1) break;
-                shared.add(xml.substring(gt + 1, end));
-                idx = end + 4;
-            }
-        }
-
-        byte[] sheetData = entries.get("xl/worksheets/sheet1.xml");
-        if (sheetData == null) throw new Exception("XLSX 未找到 sheet1");
-        String xml = new String(sheetData, StandardCharsets.UTF_8);
-        StringBuilder sb = new StringBuilder();
-        int idx = 0;
-        while (true) {
-            int cStart = xml.indexOf("<c ", idx);
-            if (cStart == -1) {
-                cStart = xml.indexOf("<c>", idx);
-                if (cStart == -1) break;
-            }
-            int cEnd = xml.indexOf("</c>", cStart);
-            if (cEnd == -1) break;
-            String cell = xml.substring(cStart, cEnd + 4);
-            String r = "";
-            int rIdx = cell.indexOf("r=\"");
-            if (rIdx != -1) {
-                int rEnd = cell.indexOf("\"", rIdx + 3);
-                r = cell.substring(rIdx + 3, rEnd);
-            }
-            String t = "";
-            int tIdx = cell.indexOf("t=\"");
-            if (tIdx != -1) {
-                int tEnd = cell.indexOf("\"", tIdx + 3);
-                t = cell.substring(tIdx + 3, tEnd);
-            }
-            int vStart = cell.indexOf("<v>");
-            int vEnd = cell.indexOf("</v>");
-            String val = "";
-            if (vStart != -1 && vEnd != -1) {
-                val = cell.substring(vStart + 3, vEnd);
-            }
-            if (t.equals("s")) {
-                int si = 0;
-                try { si = Integer.parseInt(val); } catch (Exception ignored) {}
-                if (si < shared.size()) val = shared.get(si);
-            }
-            sb.append(r).append(": ").append(val).append("  ");
-            idx = cEnd + 4;
-        }
-        if (sb.length() == 0) throw new Exception("XLSX 未找到数据");
-        return sb.toString();
-    }
-
-    private static String parsePdf(InputStream in) throws Exception {
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+    private static byte[] readAllBytes(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return null;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;
         while ((n = in.read(buf)) != -1) baos.write(buf, 0, n);
-        String raw = new String(baos.toByteArray(), StandardCharsets.ISO_8859_1);
-        StringBuilder sb = new StringBuilder();
-        int idx = 0;
-        while (true) {
-            int open = raw.indexOf("(", idx);
-            if (open == -1) break;
-            int depth = 0;
-            int close = open;
-            for (int i = open; i < raw.length(); i++) {
-                char c = raw.charAt(i);
-                if (c == '\\') { i++; continue; }
-                if (c == '(') depth++;
-                else if (c == ')') { depth--; if (depth == 0) { close = i; break; } }
-            }
-            if (close == open) break;
-            String text = raw.substring(open + 1, close);
-            int after = close + 1;
-            while (after < raw.length()
-                    && (raw.charAt(after) == ' ' || raw.charAt(after) == '\n'
-                    || raw.charAt(after) == '\r')) {
-                after++;
-            }
-            if (after + 2 <= raw.length()) {
-                String op = raw.substring(after, Math.min(after + 2, raw.length()));
-                if (op.startsWith("Tj") || op.startsWith("TJ")) {
-                    text = text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t")
-                            .replace("\\(", "(").replace("\\)", ")").replace("\\\\", "\\");
-                    sb.append(text);
-                }
-            }
-            idx = close + 1;
+        in.close();
+        return baos.toByteArray();
+    }
+
+    private static String decode(byte[] bytes, Charset cs) {
+        return new String(bytes, cs);
+    }
+
+    /**
+     * 判断是否为乱码：统计替换字符 U+FFFD 比例
+     */
+    private static boolean isGarbled(String text) {
+        if (text == null || text.isEmpty()) return false;
+        int bad = 0;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '\uFFFD') bad++;
         }
-        if (sb.length() == 0) throw new Exception("PDF 文本提取失败，请转换为文本文件");
+        return bad > text.length() / 50;
+    }
+
+    // ========== PDF（轻量提取） ==========
+
+    private static String parsePdf(Context ctx, String content) throws Exception {
+        byte[] bytes = readAllBytes(ctx, content);
+        if (bytes == null) return "";
+        String raw = new String(bytes, StandardCharsets.ISO_8859_1);
+        StringBuilder result = new StringBuilder();
+        int idx = 0;
+        while ((idx = raw.indexOf("BT", idx)) != -1) {
+            int end = raw.indexOf("ET", idx);
+            if (end == -1) break;
+            String block = raw.substring(idx, end);
+            java.util.regex.Pattern p1 = java.util.regex.Pattern.compile("\\((.*?)\\)\\s*Tj");
+            java.util.regex.Matcher m1 = p1.matcher(block);
+            while (m1.find()) result.append(m1.group(1));
+            java.util.regex.Pattern p2 = java.util.regex.Pattern.compile("\\[(.*?)\\]\\s*TJ");
+            java.util.regex.Matcher m2 = p2.matcher(block);
+            while (m2.find()) {
+                java.util.regex.Pattern p3 = java.util.regex.Pattern.compile("\\((.*?)\\)");
+                java.util.regex.Matcher m3 = p3.matcher(m2.group(1));
+                while (m3.find()) result.append(m3.group(1));
+            }
+            idx = end + 2;
+        }
+        if (result.toString().trim().isEmpty()) {
+            return "（PDF 为扫描件或无嵌入文本，需 OCR）";
+        }
+        return result.toString();
+    }
+
+    // ========== DOCX ==========
+
+    private static String parseDocx(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            if ("word/document.xml".equals(entry.getName())) {
+                text.append(extractXmlText(zis));
+            }
+        }
+        zis.close();
+        return text.toString();
+    }
+
+    // ========== XLSX ==========
+
+    private static String parseXlsx(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            String n = entry.getName();
+            if (n.startsWith("xl/sharedStrings.xml") || n.matches("xl/worksheets/sheet\\d+\\.xml")) {
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        return text.toString();
+    }
+
+    // ========== PPTX ==========
+
+    private static String parsePptx(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        int slide = 0;
+        while ((entry = zis.getNextEntry()) != null) {
+            if (entry.getName().matches("ppt/slides/slide\\d+\\.xml")) {
+                slide++;
+                text.append("--- 幻灯片 ").append(slide).append(" ---\n");
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        return text.toString();
+    }
+
+    // ========== EPUB ==========
+
+    private static String parseEpub(Context ctx, String content) throws Exception {
+        InputStream in = openStream(ctx, content);
+        if (in == null) return "";
+        ZipInputStream zis = new ZipInputStream(in);
+        ZipEntry entry;
+        StringBuilder text = new StringBuilder();
+        while ((entry = zis.getNextEntry()) != null) {
+            String n = entry.getName();
+            if (n.endsWith(".xhtml") || n.endsWith(".html") || n.endsWith(".htm")) {
+                text.append(extractXmlText(zis)).append('\n');
+            }
+        }
+        zis.close();
+        return stripHtml(text.toString());
+    }
+
+    // ========== XML 文本提取 ==========
+
+    private static String extractXmlText(InputStream in) throws Exception {
+        XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        XmlPullParser parser = factory.newPullParser();
+        parser.setInput(new InputStreamReader(in, StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        int eventType = parser.getEventType();
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            if (eventType == XmlPullParser.START_TAG && "p".equals(parser.getName())) {
+                sb.append('\n');
+            } else if (eventType == XmlPullParser.TEXT) {
+                sb.append(parser.getText());
+            }
+            eventType = parser.next();
+        }
         return sb.toString();
     }
 
-    private static String parseOfficeLegacy(InputStream in) throws Exception {
-        return readText(in);
+    private static String stripHtml(String html) {
+        return html.replaceAll("<[^>]+>", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
-    private static String stripTags(String html) {
-        StringBuilder sb = new StringBuilder();
-        boolean inTag = false;
-        for (int i = 0; i < html.length(); i++) {
-            char c = html.charAt(i);
-            if (c == '<') { inTag = true; continue; }
-            if (c == '>') { inTag = false; sb.append(' '); continue; }
-            if (!inTag) sb.append(c);
+    // ========== 工具 ==========
+
+    private static InputStream openStream(Context ctx, String content) throws Exception {
+        if (content == null) return null;
+        if (content.startsWith("/")) {
+            return new FileInputStream(new File(content));
         }
-        String s = sb.toString();
-        s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-                .replace("&nbsp;", " ").replace("&quot;", "\"").replace("&#39;", "'");
-        s = s.replaceAll("\\s+", " ").trim();
-        return s;
+        try {
+            return ctx.getContentResolver().openInputStream(android.net.Uri.parse(content));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static int countWords(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int count = 0;
+        boolean inWord = false;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == ' ' || c == '\n' || c == '\t' || c == '\r') {
+                if (inWord) { count++; inWord = false; }
+            } else {
+                inWord = true;
+            }
+        }
+        if (inWord) count++;
+        return count;
     }
 }
