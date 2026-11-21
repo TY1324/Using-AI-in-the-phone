@@ -8,8 +8,18 @@ import java.util.List;
 
 public class ContextManager {
 
+    public static final String STRATEGY_OFF = "off";
+    public static final String STRATEGY_SLIDING = "sliding";
+    public static final String STRATEGY_SUMMARY = "summary";
+
     private static final double CHARS_PER_TOKEN = 1.8;
     private static final int RECENT_KEEP = 10;
+
+    public static String strategyLabel(String s) {
+        if (STRATEGY_SLIDING.equals(s)) return "滑动窗口";
+        if (STRATEGY_SUMMARY.equals(s)) return "摘要压缩";
+        return "关闭";
+    }
 
     public static int estimateTokens(String text) {
         if (text == null) return 0;
@@ -38,21 +48,22 @@ public class ContextManager {
         return total;
     }
 
-    public static JSONArray trimToBudget(JSONArray original, int budgetTokens) {
-        if (original == null || original.length() == 0) return original;
-        if (estimateTokens(original) <= budgetTokens) return original;
+    public static JSONArray applyStrategy(JSONArray msgs, int budgetTokens, String strategy) {
+        if (msgs == null || msgs.length() == 0) return msgs;
+        if (STRATEGY_OFF.equals(strategy)) return msgs;
+        if (estimateTokens(msgs) <= budgetTokens) return msgs;
 
         List<JSONObject> sys = new ArrayList<>();
         List<JSONObject> recent = new ArrayList<>();
         List<JSONObject> middle = new ArrayList<>();
 
-        for (int i = 0; i < original.length(); i++) {
-            JSONObject m = original.optJSONObject(i);
+        for (int i = 0; i < msgs.length(); i++) {
+            JSONObject m = msgs.optJSONObject(i);
             if (m == null) continue;
             String role = m.optString("role", "");
             if ("system".equals(role)) {
                 sys.add(m);
-            } else if (i >= original.length() - RECENT_KEEP) {
+            } else if (i >= msgs.length() - RECENT_KEEP) {
                 recent.add(m);
             } else {
                 middle.add(m);
@@ -78,7 +89,7 @@ public class ContextManager {
             return result;
         }
 
-        if (!middle.isEmpty()) {
+        if (STRATEGY_SUMMARY.equals(strategy) && !middle.isEmpty()) {
             StringBuilder summary = new StringBuilder("[上文摘要] ");
             for (JSONObject m : middle) {
                 String c = m.optString("content", "");
@@ -92,7 +103,6 @@ public class ContextManager {
                     sumMsg.put("role", "system");
                     sumMsg.put("content", summary.toString());
                     result.put(sumMsg);
-                    used += sumTokens;
                 } catch (Exception ignored) {
                 }
             }
