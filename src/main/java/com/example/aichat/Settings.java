@@ -11,66 +11,68 @@ import java.util.List;
 
 public class Settings {
 
+    private static final String PREFS = "aichat_settings";
+    private static final String KEY_TYPE = "g_type";
+    private static final String KEY_HOST = "g_host";
+    private static final String KEY_KEY = "g_key";
+    private static final String KEY_MODEL = "g_model";
+    private static final String KEY_THINKING = "g_thinking";
+    private static final String KEY_PRESETS = "g_presets";
+    private static final String KEY_CONTEXT = "g_context_strategy";
+
     private final SharedPreferences sp;
 
-    public Settings(Context context) {
-        sp = context.getSharedPreferences("chat", Context.MODE_PRIVATE);
+    public Settings(Context ctx) {
+        sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    public String get(String key, String def) {
-        return sp.getString(key, def);
+    public String globalType() {
+        return sp.getString(KEY_TYPE, "OPENAI");
+    }
+
+    public String globalHost() {
+        return sp.getString(KEY_HOST, "https://api.deepseek.com");
+    }
+
+    public String globalKey() {
+        return sp.getString(KEY_KEY, "");
+    }
+
+    public String globalModel() {
+        return sp.getString(KEY_MODEL, "deepseek-chat");
+    }
+
+    public String contextStrategy() {
+        return sp.getString(KEY_CONTEXT, "sliding");
+    }
+
+    public void saveContextStrategy(String strategy) {
+        sp.edit().putString(KEY_CONTEXT, strategy).apply();
+    }
+
+    public boolean globalThinking() {
+        return sp.getString(KEY_THINKING, "off").equals("on");
+    }
+
+    public void saveGlobal(String type, String host, String key, String model, boolean thinking) {
+        sp.edit()
+                .putString(KEY_TYPE, type)
+                .putString(KEY_HOST, host)
+                .putString(KEY_KEY, key)
+                .putString(KEY_MODEL, model)
+                .putString(KEY_THINKING, thinking ? "on" : "off")
+                .apply();
     }
 
     public void put(String key, String value) {
         sp.edit().putString(key, value).apply();
     }
 
-    public String globalType() { return get("g_type", "OPENAI").toUpperCase(); }
-    public String globalHost() { return get("g_host", "https://api.deepseek.com"); }
-    public String globalKey() { return get("g_key", ""); }
-    public String globalModel() { return get("g_model", "deepseek-chat"); }
-    public boolean globalThinking() { return get("g_thinking", "off").equals("on"); }
-
-    public void saveGlobal(String type, String host, String key, String model, boolean thinking) {
-        sp.edit()
-                .putString("g_type", type)
-                .putString("g_host", host)
-                .putString("g_key", key)
-                .putString("g_model", model)
-                .putString("g_thinking", thinking ? "on" : "off")
-                .apply();
-    }
-
-    public void savePreset(String name, String type, String host, String key, String model,
-                           String maxTokens, String temperature, String skill, String note, boolean thinking) {
-        try {
-            JSONArray arr = getPresetsArray();
-            JSONArray out = new JSONArray();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (!o.optString("name", "").equals(name)) out.put(o);
-            }
-            JSONObject o = new JSONObject();
-            o.put("name", name);
-            o.put("type", type);
-            o.put("host", host);
-            o.put("key", key);
-            o.put("model", model);
-            o.put("maxTokens", maxTokens);
-            o.put("temperature", temperature);
-            o.put("skill", skill);
-            o.put("note", note);
-            o.put("thinking", thinking);
-            out.put(o);
-            sp.edit().putString("presets", out.toString()).apply();
-        } catch (Exception ignored) {
-        }
-    }
-
     public List<String[]> listPresets() {
         List<String[]> list = new ArrayList<>();
+        String json = sp.getString(KEY_PRESETS, "[]");
         try {
-            JSONArray arr = getPresetsArray();
+            JSONArray arr = new JSONArray(json);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 list.add(new String[]{
@@ -79,11 +81,11 @@ public class Settings {
                         o.optString("host", ""),
                         o.optString("key", ""),
                         o.optString("model", ""),
-                        o.optString("maxTokens", "4096"),
-                        o.optString("temperature", ""),
+                        o.optString("max", "4096"),
+                        o.optString("temp", ""),
                         o.optString("skill", ""),
                         o.optString("note", ""),
-                        String.valueOf(o.optBoolean("thinking", false))
+                        o.optString("thinking", "off")
                 });
             }
         } catch (Exception ignored) {
@@ -92,27 +94,61 @@ public class Settings {
     }
 
     public String[] getPreset(String name) {
-        for (String[] p : listPresets()) {
+        List<String[]> all = listPresets();
+        for (String[] p : all) {
             if (p[0].equals(name)) return p;
         }
         return null;
     }
 
-    public void deletePreset(String name) {
-        try {
-            JSONArray arr = getPresetsArray();
-            JSONArray out = new JSONArray();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (!o.optString("name", "").equals(name)) out.put(o);
+    public void savePreset(String name, String type, String host, String key,
+                           String model, String max, String temp, String skill,
+                           String note, boolean thinking) {
+        List<String[]> all = listPresets();
+        JSONArray arr = new JSONArray();
+        boolean replaced = false;
+        for (String[] p : all) {
+            if (p[0].equals(name)) {
+                arr.put(toJson(name, type, host, key, model, max, temp, skill, note, thinking));
+                replaced = true;
+            } else {
+                arr.put(toJson(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9].equals("on")));
             }
-            sp.edit().putString("presets", out.toString()).apply();
-        } catch (Exception ignored) {
         }
+        if (!replaced) {
+            arr.put(toJson(name, type, host, key, model, max, temp, skill, note, thinking));
+        }
+        sp.edit().putString(KEY_PRESETS, arr.toString()).apply();
     }
 
-    private JSONArray getPresetsArray() throws Exception {
-        String s = sp.getString("presets", "[]");
-        return new JSONArray(s);
+    public void deletePreset(String name) {
+        List<String[]> all = listPresets();
+        JSONArray arr = new JSONArray();
+        for (String[] p : all) {
+            if (!p[0].equals(name)) {
+                arr.put(toJson(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9].equals("on")));
+            }
+        }
+        sp.edit().putString(KEY_PRESETS, arr.toString()).apply();
+    }
+
+    private JSONObject toJson(String name, String type, String host, String key,
+                              String model, String max, String temp, String skill,
+                              String note, boolean thinking) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("name", name);
+            o.put("type", type);
+            o.put("host", host);
+            o.put("key", key);
+            o.put("model", model);
+            o.put("max", max);
+            o.put("temp", temp);
+            o.put("skill", skill);
+            o.put("note", note);
+            o.put("thinking", thinking ? "on" : "off");
+        } catch (Exception ignored) {
+        }
+        return o;
     }
 }
