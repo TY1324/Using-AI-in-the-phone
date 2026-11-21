@@ -1,9 +1,15 @@
 package com.example.aichat;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.provider.OpenableColumns;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 public class FileHelper {
 
@@ -26,25 +32,43 @@ public class FileHelper {
             cb.onError("未选择文件");
             return;
         }
-        Uri uri = data.getData();
+        final Uri uri = data.getData();
         if (uri == null) {
-            cb.onError("文件无效");
+            cb.onError("无效的文件");
             return;
         }
-        String name = "file";
-        try {
-            String n = uri.getLastPathSegment();
-            if (n != null) name = n;
-        } catch (Exception ignored) {
-        }
-        final String finalName = name;
+        final String name = resolveName(a, uri);
+
         new Thread(() -> {
             try {
-                String text = FileParser.parse(a, uri, finalName);
-                cb.onText(finalName, text);
+                FileParser.Result r = FileParser.parse(a, uri.toString(), name);
+                if ("error".equals(r.type)) {
+                    a.runOnUiThread(() -> cb.onError(r.text));
+                    return;
+                }
+                String text = r.text == null ? "" : r.text;
+                a.runOnUiThread(() -> cb.onText(name, text));
             } catch (Exception e) {
-                cb.onError("解析失败：" + e.getMessage());
+                a.runOnUiThread(() -> cb.onError("解析失败：" + e.getMessage()));
             }
         }).start();
+    }
+
+    private static String resolveName(Activity a, Uri uri) {
+        String name = "文件";
+        try {
+            android.database.Cursor c = a.getContentResolver().query(
+                    uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (c != null && c.moveToFirst()) {
+                name = c.getString(0);
+                c.close();
+            }
+        } catch (Exception ignored) {
+        }
+        if (name == null || name.isEmpty()) {
+            String last = uri.getLastPathSegment();
+            if (last != null) name = last;
+        }
+        return name;
     }
 }
