@@ -55,41 +55,69 @@ public class FileDelivery {
         return new SavedFile(out, kind);
     }
 
+    /**
+     * 分享文件（使用系统分享面板，可发到其他应用）
+     */
+    public static void share(Context ctx, SavedFile sf, String title) {
+        try {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType(sf.kind.mime);
+            i.putExtra(Intent.EXTRA_TEXT, readContent(sf.file));
+            i.putExtra(Intent.EXTRA_SUBJECT, title == null ? sf.file.getName() : title);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent chooser = Intent.createChooser(i, "分享内容");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
+        } catch (Exception e) {
+            // 忽略
+        }
+    }
+
+    /**
+     * 分享文件路径文本（便于用户自己复制/发送）
+     */
+    public static void sharePath(Context ctx, SavedFile sf) {
+        try {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, "文件已保存：" + sf.file.getAbsolutePath());
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent chooser = Intent.createChooser(i, "分享文件位置");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
+        } catch (Exception e) {
+            // 忽略
+        }
+    }
+
+    /**
+     * 打开文件（尝试用系统应用）
+     */
     public static void open(Context ctx, SavedFile sf) {
         try {
-            Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                    ctx, ctx.getPackageName() + ".fileprovider", sf.file);
-            Intent i = new Intent(Intent.ACTION_VIEW);
-            i.setDataAndType(uri, sf.kind.mime);
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(i);
-        } catch (Exception e) {
             Intent i = new Intent(Intent.ACTION_VIEW);
             i.setDataAndType(Uri.fromFile(sf.file), sf.kind.mime);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
+        } catch (Exception e) {
+            // 无对应应用时忽略
         }
     }
 
-    public static void share(Context ctx, SavedFile sf, String title) {
+    /**
+     * 读取文件内容（用于文本分享）
+     */
+    public static String readContent(File f) {
         try {
-            Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                    ctx, ctx.getPackageName() + ".fileprovider", sf.file);
-            Intent i = new Intent(Intent.ACTION_SEND);
-            i.setType(sf.kind.mime);
-            i.putExtra(Intent.EXTRA_STREAM, uri);
-            i.putExtra(Intent.EXTRA_SUBJECT, title == null ? sf.file.getName() : title);
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            Intent chooser = Intent.createChooser(i, "分享文件");
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(chooser);
+            java.io.FileInputStream fis = new java.io.FileInputStream(f);
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = fis.read(buf)) != -1) baos.write(buf, 0, n);
+            fis.close();
+            return new String(baos.toByteArray(), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            Intent i = new Intent(Intent.ACTION_SEND);
-            i.setType(sf.kind.mime);
-            i.putExtra(Intent.EXTRA_STREAM, Uri.fromFile(sf.file));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(Intent.createChooser(i, "分享文件"));
+            return "";
         }
     }
 
